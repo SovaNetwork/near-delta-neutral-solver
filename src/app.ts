@@ -49,6 +49,13 @@ async function main() {
             if (!msg.type || msg.type !== 'quote_request' || !msg.payload) return;
 
             const req = msg.payload;
+
+            // Validate Token Support
+            if (req.token_in !== BTC_ONLY_CONFIG.BTC_TOKEN_ID && req.token_in !== BTC_ONLY_CONFIG.USDT_TOKEN_ID) {
+                // console.log(`Ignoring request for unknown token: ${req.token_in}`);
+                return;
+            }
+
             // console.log(`Received RFQ: ${req.amount_in} ${req.token_in}`);
 
             const quote = await quoterService.getQuote(req);

@@ -26,16 +26,19 @@ export class InventoryStateService {
         }
 
         const btcBalanceBN = await this.nearService.getBalance(BTC_ONLY_CONFIG.BTC_TOKEN_ID);
-        const usdcBalanceBN = await this.nearService.getBalance(BTC_ONLY_CONFIG.USDC_TOKEN_ID);
+        const usdtBalanceBN = await this.nearService.getBalance(BTC_ONLY_CONFIG.USDT_TOKEN_ID);
 
         // Convert to float (assuming 8 decimals for BTC, 6 for USDC usually, but checking config)
         // Standard WBTC is 8 decimals. USDC is 6.
+        // Convert to float (assuming 8 decimals for BTC, 6 for USDT)
+        // Standard WBTC is 8 decimals. USDT on NEAR is 6 decimals.
         const btcBalance = btcBalanceBN.div(1e8).toNumber();
-        const usdcBalance = usdcBalanceBN.div(1e6).toNumber();
+        const usdtBalance = usdtBalanceBN.div(1e6).toNumber();
 
-        const canBuyBtc = usdcBalance > BTC_ONLY_CONFIG.MIN_USDC_RESERVE && btcBalance < BTC_ONLY_CONFIG.MAX_BTC_INVENTORY;
+        const canBuyBtc = usdtBalance > BTC_ONLY_CONFIG.MIN_USDT_RESERVE && btcBalance < BTC_ONLY_CONFIG.MAX_BTC_INVENTORY;
         const canSellBtc = btcBalance > 0.0001; // Min trade size equivalent
 
+        // Flexible Flow: Allow BOTH if conditions met.
         if (canBuyBtc && canSellBtc) return 'BOTH';
         if (canBuyBtc) return 'BUY_BTC_ONLY';
         if (canSellBtc) return 'SELL_BTC_ONLY';

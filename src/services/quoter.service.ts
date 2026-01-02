@@ -20,11 +20,11 @@ export class QuoterService {
     async getQuote(request: QuoteRequest) {
         // 1. Validate Assets
         const isBtcIn = request.token_in === BTC_ONLY_CONFIG.BTC_TOKEN_ID;
-        const isUsdcIn = request.token_in === BTC_ONLY_CONFIG.USDC_TOKEN_ID;
+        const isUsdtIn = request.token_in === BTC_ONLY_CONFIG.USDT_TOKEN_ID;
         const isBtcOut = request.token_out === BTC_ONLY_CONFIG.BTC_TOKEN_ID;
-        const isUsdcOut = request.token_out === BTC_ONLY_CONFIG.USDC_TOKEN_ID;
+        const isUsdtOut = request.token_out === BTC_ONLY_CONFIG.USDT_TOKEN_ID;
 
-        if (!((isBtcIn && isUsdcOut) || (isUsdcIn && isBtcOut))) {
+        if (!((isBtcIn && isUsdtOut) || (isUsdtIn && isBtcOut))) {
             return undefined; // Not a BTC/USDC pair
         }
 

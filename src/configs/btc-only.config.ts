@@ -8,10 +8,11 @@ export const BTC_ONLY_CONFIG = {
     // 3. BTC (Spot): btc.omft.near
     BTC_TOKEN_ID: process.env.BTC_TOKEN_ID || 'eth-0x2260fac5e5542a773aa44fbcfedf7c193bc2c599.omft.near',
 
-    USDC_TOKEN_ID: process.env.USDC_TOKEN_ID || '17208628f84f5d6ad33f05d896584acf65e55331.factory.bridge.near',
+    // USDT (Tether on NEAR)
+    USDT_TOKEN_ID: process.env.USDT_TOKEN_ID || 'usdt.tether-token.near',
 
     MAX_BTC_INVENTORY: parseFloat(process.env.MAX_BTC_INVENTORY || '5.0'),
-    MIN_USDC_RESERVE: parseFloat(process.env.MIN_USDC_RESERVE || '2000.0'),
+    MIN_USDT_RESERVE: parseFloat(process.env.MIN_USDT_RESERVE || '2000.0'),
 
     TARGET_SPREAD_BIPS: parseInt(process.env.TARGET_SPREAD_BIPS || '200', 10), // 2%
 

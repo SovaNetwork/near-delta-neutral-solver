@@ -1,14 +1,16 @@
-# NEAR Delta-Neutral Solver (BTC/USDC)
+# NEAR Delta-Neutral Solver (BTC/USDT)
 
 A professional NEAR Intents solver implementing a **Delta-Neutral Hedging Strategy** using **Hyperliquid**.
 
 ## 🚀 Overview
 
-This solver provides liquidity for **BTC <> USDC** swaps on NEAR. It operates on a "high spread, zero delta" philosophy:
-1.  **Quote**: Offers to Buy BTC from users (Solver Buys Spot BTC) at a profitable spread.
-2.  **Settle**: Receives Spot BTC on NEAR.
-3.  **Hedge**: Immediately shorts BTC Perps on Hyperliquid to neutralize price exposure.
-4.  **Unwind**: Once inventory is acquired, offers to Sell BTC back to users, closing the short position.
+This solver provides liquidity for **BTC <> USDT** swaps on NEAR. It operates on a "high spread, zero delta" philosophy with a **stochastic inventory model**:
+1.  **Quote**: Offers to Buy or Sell BTC based on current inventory and profitability.
+    *   **Buy BTC**: Allowed if `Total BTC < Max Cap` and `USDT > Min Reserve`.
+    *   **Sell BTC**: Allowed if `Total BTC > Min Trade Size`.
+    *   **Both**: Often provides two-way quotes to capture spread in both directions.
+2.  **Settle**: Receives Spot BTC (or USDT) on NEAR.
+3.  **Hedge**: Immediately executes the inverse trade (Short or Long) on Hyperliquid to neutralize price exposure.
 
 ## 🏗 System Architecture
 
@@ -24,36 +26,27 @@ The solver is built with Node.js/TypeScript and consists of five core services:
 ### 2. `QuoterService`
 *   **Role**: The pricing engine.
 *   **Function**:
-    *   Calculates quotes based on Hyperliquid's weighted average depth + configured spread (default 2%).
-    *   **Risk Guard**: Rejects quotes if the **Hourly Funding Rate** is too negative (preventing paying excessive funding on shorts).
-    *   **Inventory Guard**: Rejects Buys if inventory cap is reached; rejects Sells if inventory is empty.
+    *   Calculates quotes based on Hyperliquid's weighted average depth + configured spread.
+    *   **Risk Guard**: Rejects quotes if the **Hourly Funding Rate** is too negative (preventing expensive shorts).
+    *   **Inventory Guard**: Ensures sufficient balances before quoting.
 
 ### 3. `HedgerService`
 *   **Role**: The executioner.
 *   **Function**:
     *   Polls the NEAR `intents.near` contract to detect confirmed settlements.
-    *   Triggers the corresponding hedge on Hyperliquid (Short or Long) only after on-chain confirmation.
+    *   Triggers the corresponding hedge on Hyperliquid.
 
 ### 4. `InventoryStateService`
-*   **Role**: The state machine.
+*   **Role**: The state manager.
 *   **Function**:
-    *   Determines if the solver is in `BUY_ONLY` (building inventory), `SELL_ONLY`, or `BOTH` modes.
+    *   Manages "Flexible Flow" logic, allowing random buy/sell patterns as long as inventory constraints are met.
     *   Supports an **Emergency Mode** to force Sell-Only behavior in critical failures.
 
 ### 5. `CronService`
 *   **Role**: The watchdog.
 *   **Function**:
     *   Runs hourly to check for **Inventory Drift**.
-    *   Alerts if `|Spot BTC| != |Perp Short|` by more than a threshold (e.g., 0.001 BTC).
-
----
-
-## 🛡 Risk Management Features
-
-1.  **Funding Rate Checks**: Quotes are rejected if the Hyperliquid funding rate < `-0.05%` (hourly), protecting against expensive short positions.
-2.  **Inventory Drift Monitor**: Periodic checks ensure the hedge remains perfect. Drift alerts require manual intervention or the auto-rebalancer (roadmap).
-3.  **Margin Protection**: Quoting halts immediately if Hyperliquid margin falls below a safety threshold (`$1000`).
-4.  **Slippage Protection**: Hedge orders use marketable limits with strict slippage bounds (5%) to prevent bad fills during volatility.
+    *   Alerts if `|Spot BTC| != |Perp Short|` by more than a threshold.
 
 ---
 
@@ -77,8 +70,9 @@ NEAR_NETWORK_ID=mainnet
 HYPERLIQUID_MAINNET=true
 
 # --- Strategy Constraints ---
+# Base Asset: USDT (usdt.tether-token.near)
 MAX_BTC_INVENTORY=5.0
-MIN_USDC_RESERVE=2000
+MIN_USDT_RESERVE=2000
 TARGET_SPREAD_BIPS=200  # 2.0%
 MIN_HOURLY_FUNDING_RATE=-0.0005 # -0.05%
 DRIFT_THRESHOLD_BTC=0.001
