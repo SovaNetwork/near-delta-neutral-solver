@@ -99,7 +99,7 @@ async function connectToBusWithRetry(
     const wsOptions: any = {};
     if (process.env.RELAY_AUTH_KEY) {
         wsOptions.headers = {
-            'Authorization': process.env.RELAY_AUTH_KEY
+            'Authorization': `Bearer ${process.env.RELAY_AUTH_KEY}`
         };
         console.log("Using RELAY_AUTH_KEY for connection.");
     }
