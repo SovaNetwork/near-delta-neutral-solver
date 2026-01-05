@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NEAR Delta-Neutral Solver Dashboard</title>
+    <style>
+        :root {
+            --bg-color: #0d1117;
+            --card-bg: #161b22;
+            --text-primary: #c9d1d9;
+            --text-secondary: #8b949e;
+            --border-color: #30363d;
+            --accent-green: #238636;
+            --accent-red: #da3633;
+            --accent-blue: #58a6ff;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .card {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 20px;
+        }
+
+        .card h2 {
+            margin-top: 0;
+            font-size: 1.2em;
+            color: var(--text-secondary);
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 10px;
+            margin-bottom: 15px;
+        }
+
+        .metric {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+
+        .metric label {
+            color: var(--text-secondary);
+        }
+
+        .value {
+            font-family: monospace;
+            font-weight: bold;
+        }
+
+        .status-ok { color: var(--accent-green); }
+        .status-warn { color: #d29922; }
+        .status-error { color: var(--accent-red); }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9em;
+        }
+
+        th, td {
+            text-align: left;
+            padding: 8px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        th {
+            color: var(--text-secondary);
+        }
+
+        .badge {
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.8em;
+            font-weight: bold;
+        }
+        .badge-QUOTE_GENERATED { background: #1f6feb; color: white; }
+        .badge-HEDGE_EXECUTED { background: #238636; color: white; }
+        .badge-HEDGE_FAILED { background: #da3633; color: white; }
+
+        .btn {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            color: var(--accent-blue);
+            padding: 5px 10px;
+            border-radius: 4px;
+            text-decoration: none;
+            font-size: 0.9em;
+            cursor: pointer;
+        }
+        .btn:hover {
+            background-color: var(--border-color);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>
+            Solver Dashboard
+            <div>
+                <span id="health-status" class="badge">Checking...</span>
+                <a href="/api/export/trades.csv" class="btn">Export CSV</a>
+            </div>
+        </h1>
+
+        <div class="grid">
+            <div class="card">
+                <h2>Positions</h2>
+                <div class="metric"><label>Spot BTC:</label> <span id="spot-btc" class="value">-</span></div>
+                <div class="metric"><label>Spot USDT:</label> <span id="spot-usdt" class="value">-</span></div>
+                <div class="metric"><label>Perp Position:</label> <span id="perp-pos" class="value">-</span></div>
+                <div class="metric"><label>Net Delta:</label> <span id="net-delta" class="value">-</span></div>
+                <div class="metric"><label>Min Trade Size:</label> <span class="value">0.0001 BTC</span></div>
+                <div class="metric"><label>Max Inv:</label> <span class="value">5.0 BTC</span></div>
+            </div>
+
+            <div class="card">
+                <h2>24h Stats</h2>
+                <div class="metric"><label>Quotes Generated:</label> <span id="stats-quotes" class="value">-</span></div>
+                <div class="metric"><label>Hedges Executed:</label> <span id="stats-hedges" class="value">-</span></div>
+                <div class="metric"><label>Volume (BTC):</label> <span id="stats-volume" class="value">-</span></div>
+                <div class="metric"><label>Failures:</label> <span id="stats-failures" class="value status-error">-</span></div>
+            </div>
+            
+            <div class="card">
+                <h2>Pending Quotes</h2>
+                <div id="pending-list" style="max-height: 150px; overflow-y: auto;">
+                    <div style="color: var(--text-secondary); font-style: italic;">None</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Recent Activity</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>Type</th>
+                        <th>Nonce</th>
+                        <th>Direction</th>
+                        <th>Amount</th>
+                        <th>Details</th>
+                    </tr>
+                </thead>
+                <tbody id="trades-body">
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        async function fetchData() {
+            try {
+                // 1. Health
+                const healthRes = await fetch('/health');
+                if (healthRes.ok) {
+                    const health = await healthRes.json();
+                    const el = document.getElementById('health-status');
+                    el.textContent = 'ONLINE';
+                    el.style.backgroundColor = 'var(--accent-green)';
+                }
+
+                // 2. Positions
+                const posRes = await fetch('/api/positions');
+                if (posRes.ok) {
+                    const pos = await posRes.json();
+                    document.getElementById('spot-btc').textContent = pos.spotBtc.toFixed(8);
+                    document.getElementById('spot-usdt').textContent = pos.spotUsdt.toFixed(2);
+                    document.getElementById('perp-pos').textContent = pos.perpPosition.toFixed(8);
+                    
+                    const deltaEl = document.getElementById('net-delta');
+                    deltaEl.textContent = pos.netDelta.toFixed(8);
+                    if (Math.abs(pos.netDelta) > 0.001) {
+                        deltaEl.className = 'value status-error';
+                    } else {
+                        deltaEl.className = 'value status-ok';
+                    }
+                }
+
+                // 3. Stats
+                const statsRes = await fetch('/api/stats');
+                if (statsRes.ok) {
+                    const stats = await statsRes.json();
+                    document.getElementById('stats-quotes').textContent = stats.quotesGenerated;
+                    document.getElementById('stats-hedges').textContent = stats.hedgesExecuted;
+                    document.getElementById('stats-volume').textContent = stats.volumeBtc.toFixed(4);
+                    document.getElementById('stats-failures').textContent = stats.failures;
+                }
+
+                // 4. Pending
+                const pendingRes = await fetch('/api/pending-quotes');
+                if (pendingRes.ok) {
+                    const pending = await pendingRes.json();
+                    const list = document.getElementById('pending-list');
+                    if (pending.length === 0) {
+                        list.innerHTML = '<div style="color: var(--text-secondary); font-style: italic;">None</div>';
+                    } else {
+                        list.innerHTML = pending.map(p => `
+                            <div style="margin-bottom: 5px; font-size: 0.9em;">
+                                <span class="badge" style="background: #8b949e">${p.direction}</span>
+                                <b>${p.amountBtc} BTC</b>
+                                <span style="font-family: monospace; font-size: 0.8em; color: var(--text-secondary)">${p.nonce.substring(0,8)}...</span>
+                            </div>
+                        `).join('');
+                    }
+                }
+
+                // 5. Recent Trades
+                const tradesRes = await fetch('/api/trades?limit=20');
+                if (tradesRes.ok) {
+                    const trades = await tradesRes.json();
+                    const tbody = document.getElementById('trades-body');
+                    tbody.innerHTML = trades.reverse().map(t => `
+                        <tr>
+                            <td>${new Date(t.timestamp).toLocaleTimeString()}</td>
+                            <td><span class="badge badge-${t.type}">${t.type.split('_')[0]}</span></td>
+                            <td style="font-family: monospace">${t.nonce ? t.nonce.substring(0,8) + '...' : '-'}</td>
+                            <td>${t.direction || '-'}</td>
+                            <td>${t.amountBtc ? t.amountBtc.toFixed(8) + ' BTC' : (t.amountUsdt ? t.amountUsdt.toFixed(2) + ' USDT' : '-')}</td>
+                            <td style="color: var(--text-secondary)">${t.error || t.quotedPrice || ''}</td>
+                        </tr>
+                    `).join('');
+                }
+
+            } catch (e) {
+                console.error("Fetch failed", e);
+                const el = document.getElementById('health-status');
+                el.textContent = 'OFFLINE';
+                el.style.backgroundColor = 'var(--accent-red)';
+            }
+        }
+
+        // Initial load
+        fetchData();
+        // Poll
+        setInterval(fetchData, 5000);
+    </script>
+</body>
+</html>

@@ -35,8 +35,10 @@ export class InventoryStateService {
         const btcBalance = btcBalanceBN.div(1e8).toNumber();
         const usdtBalance = usdtBalanceBN.div(1e6).toNumber();
 
-        const canBuyBtc = usdtBalance > BTC_ONLY_CONFIG.MIN_USDT_RESERVE && btcBalance < BTC_ONLY_CONFIG.MAX_BTC_INVENTORY;
-        const canSellBtc = btcBalance > 0.0001; // Min trade size equivalent
+        const canBuyBtc = usdtBalanceBN.gt(new BigNumber(BTC_ONLY_CONFIG.MIN_USDT_RESERVE).multipliedBy(1e6)) &&
+            btcBalanceBN.lt(new BigNumber(BTC_ONLY_CONFIG.MAX_BTC_INVENTORY).multipliedBy(1e8));
+
+        const canSellBtc = btcBalanceBN.gt(new BigNumber(BTC_ONLY_CONFIG.MIN_TRADE_SIZE_BTC).multipliedBy(1e8));
 
         // Flexible Flow: Allow BOTH if conditions met.
         if (canBuyBtc && canSellBtc) return 'BOTH';

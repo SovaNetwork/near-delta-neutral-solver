@@ -7,6 +7,7 @@ import {
 import { Wallet } from 'ethers';
 import WebSocket from 'ws';
 import * as dotenv from 'dotenv';
+import { BTC_ONLY_CONFIG } from '../configs/btc-only.config';
 dotenv.config();
 
 export class HyperliquidService {
@@ -67,30 +68,32 @@ export class HyperliquidService {
         this.assetIndex = idx;
         console.log(`Hyperliquid Connected. ${this.coin} Asset Index: ${this.assetIndex}`);
 
-        // 2. Subscribe to L2 Book
-        await this.subClient.l2Book({ coin: this.coin }, (data: any) => {
-            if (data && data.levels) {
-                this.l2Book = data.levels;
-            } else {
-                this.l2Book = data;
-            }
+        // 2. Subscribe to L2 Book and wait for first data
+        await new Promise<void>((resolve) => {
+            let initialDataReceived = false;
+            this.subClient.l2Book({ coin: this.coin }, (data: any) => {
+                if (data && data.levels) {
+                    this.l2Book = data.levels;
+                } else {
+                    this.l2Book = data;
+                }
+
+                if (!initialDataReceived) {
+                    initialDataReceived = true;
+                    resolve();
+                }
+            });
         });
         console.log(`Subscribed to L2 Book for ${this.coin}`);
     }
 
     getHedgePrice(side: 'bid' | 'ask', size: number): number {
         if (!this.l2Book || !this.l2Book.levels) {
-            // It might be that this.l2Book IS the levels array if logic above 'this.l2Book = data' is hit?
-            // If 'data' IS the levels, then this.l2Book is array.
-            // If standard response, it has levels.
             if (Array.isArray(this.l2Book)) {
-                // Maybe it's [bids, asks] directly?
-                // Safest is to check structure at runtime or assume standard.
-                // I'll assume the standard struct has levels.
-                // If not available yet:
-                throw new Error("Orderbook not yet available");
+                // Handle raw array if needed (though SDK usually normalized)
+                throw new Error("Orderbook not yet available (raw format)");
             }
-            if (!this.l2Book.levels) throw new Error("Orderbook not yet available");
+            throw new Error("Orderbook not yet available");
         }
 
         const levels = side === 'bid' ? this.l2Book.levels[0] : this.l2Book.levels[1];
@@ -176,5 +179,31 @@ export class HyperliquidService {
         });
 
         return result;
+    }
+
+    async checkPositionCapacity(direction: 'short' | 'long', sizeBtc: number): Promise<boolean> {
+        // Current Position: +1.0 (Long) or -1.0 (Short).
+        // Max Inventory: 5.0 (Config).
+
+        try {
+            const currentPos = await this.getBtcPosition();
+
+            let projectedPos = currentPos;
+            if (direction === 'short') {
+                projectedPos -= sizeBtc;
+            } else {
+                projectedPos += sizeBtc;
+            }
+
+            // Check if projected position assumes more risk than allowed
+            if (Math.abs(projectedPos) > BTC_ONLY_CONFIG.MAX_BTC_INVENTORY) {
+                console.warn(`[RISK] Trade size ${sizeBtc} would exceed max inventory. Projected: ${projectedPos}, Max: ${BTC_ONLY_CONFIG.MAX_BTC_INVENTORY}`);
+                return false;
+            }
+            return true;
+        } catch (e) {
+            console.error("Failed to check position capacity", e);
+            return false;
+        }
     }
 }

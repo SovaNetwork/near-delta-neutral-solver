@@ -5,163 +5,154 @@ A professional NEAR Intents solver implementing a **Delta-Neutral Hedging Strate
 ## 🚀 Overview
 
 This solver provides liquidity for **BTC <> USDT** swaps on NEAR. It operates on a "high spread, zero delta" philosophy with a **stochastic inventory model**:
+
 1.  **Quote**: Offers to Buy or Sell BTC based on current inventory and profitability.
-    *   **Buy BTC**: Allowed if `Total BTC < Max Cap` and `USDT > Min Reserve`.
+    *   **Buy BTC**: Allowed if `Total BTC <> Max Cap` and `USDT > Min Reserve`.
     *   **Sell BTC**: Allowed if `Total BTC > Min Trade Size`.
-    *   **Both**: Often provides two-way quotes to capture spread in both directions.
 2.  **Settle**: Receives Spot BTC (or USDT) on NEAR.
 3.  **Hedge**: Immediately executes the inverse trade (Short or Long) on Hyperliquid to neutralize price exposure.
 
+---
+
 ## 🏗 System Architecture
 
-The solver is built with Node.js/TypeScript and consists of five core services:
+The solver is built with Node.js/TypeScript and consists of the following core services:
 
-### 1. `HyperliquidService`
-*   **Role**: The "Brain" for market data and execution.
-*   **Function**:
-    *   Connects to Hyperliquid WebSocket for real-time L2 Orderbook.
-    *   Executes `IOC` (Immediate-or-Cancel) orders to hedge positions.
-    *   Monitors **Funding Rates** and **Available Margin**.
+### Core Logic
+*   **`HyperliquidService`**: Connects to Hyperliquid WebSocket for real-time L2 orderbook data and executes hedge orders.
+*   **`QuoterService`**: Calculates quotes based on market depth, spread, and inventory constraints. Signs intents with the solver's private key.
+*   **`HedgerService`**: Detects settlements on NEAR and triggers offsets on Hyperliquid. Tracks quote lifecycles to prevent double-hedging.
+*   **`InventoryStateService`**: Manages inventory limits and directs quote logic based on current holdings.
+*   **`CronService`**: Essential watchdog that monitors "Inventory Drift" (Spot vs Perp divergence) and alerts on issues.
 
-### 2. `QuoterService`
-*   **Role**: The pricing engine.
-*   **Function**:
-    *   Calculates quotes based on Hyperliquid's weighted average depth + configured spread.
-    *   **Risk Guard**: Rejects quotes if the **Hourly Funding Rate** is too negative (preventing expensive shorts).
-    *   **Inventory Guard**: Ensures sufficient balances before quoting.
+### Observability Suite (New)
+*   **`LoggerService`**: Centralized structured logging for all trade lifecycle events (`trades.jsonl`) and position snapshots (`positions.jsonl`).
+*   **`ApiService`**: Express.js REST API providing real-time state, statistics, and metrics.
+*   **Web Dashboard**: A real-time UI for visual monitoring of solver operations.
 
-### 3. `HedgerService`
-*   **Role**: The executioner.
-*   **Function**:
-    *   Polls the NEAR `intents.near` contract to detect confirmed settlements.
-    *   Triggers the corresponding hedge on Hyperliquid.
+---
 
-### 4. `InventoryStateService`
-*   **Role**: The state manager.
-*   **Function**:
-    *   Manages "Flexible Flow" logic, allowing random buy/sell patterns as long as inventory constraints are met.
-    *   Supports an **Emergency Mode** to force Sell-Only behavior in critical failures.
+## 📊 Observability & Monitoring
 
-### 5. `CronService`
-*   **Role**: The watchdog.
-*   **Function**:
-    *   Runs hourly to check for **Inventory Drift**.
-    *   Alerts if `|Spot BTC| != |Perp Short|` by more than a threshold.
+The solver includes a comprehensive observability suite accessible via a web dashboard and API.
+
+### 🖥️ Web Dashboard
+**URL**: `http://localhost:3000/dashboard.html` (Default port)
+
+Features:
+*   **Real-time Positions**: Visualizes Spot BTC vs Perp Position and Net Delta.
+*   **Health Status**: Indicators for API and Drift status.
+*   **Recent Activity**: Live feed of Quotes Generated and Hedges Executed.
+*   **One-Click Export**: Download trade history as CSV.
+
+### 🔌 API Endpoints
+The API runs on port `3000` by default.
+
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `GET` | `/health` | System health status (uptime). |
+| `GET` | `/api/positions` | Current inventory, perp position, margin, and delta. |
+| `GET` | `/api/pending-quotes` | List of quotes currently tracked for settlement. |
+| `GET` | `/api/trades` | Recent trade events (quotes, hedges). |
+| `GET` | `/api/stats` | 24-hour statistics (volume, success rate). |
+| `GET` | `/api/export/trades.csv` | Download full trade history as CSV. |
+| `GET` | `/metrics` | Prometheus-compatible metrics endpoint. |
+
+### 📝 Logs
+Structured logs are written to the `logs/` directory:
+*   `logs/trades.jsonl`: Trade lifecycle events (`QUOTE_GENERATED`, `QUOTE_PUBLISHED`, `HEDGE_EXECUTED`, `HEDGE_FAILED`).
+*   `logs/positions.jsonl`: Periodic snapshots of inventory and margin.
 
 ---
 
 ## 🛠 Configuration
 
-Create a `.env` file in the root directory:
+Create a `.env` file in the root directory. See `.env.example` for a complete template.
 
-```bash
-# --- Identity ---
-SOLVER_ID=solver.near
-SOLVER_PRIVATE_KEY=ed25519:...
-HYPERLIQUID_WALLET_ADDRESS=0x...
-HYPERLIQUID_PRIVATE_KEY=0x... # Ethereum-style private key
+### Key Environment Variables
 
-# --- Connectivity ---
-SOLVER_BUS_WS_URL=wss://solver-relay-v2.chaindefuser.com/ws
-NEAR_RPC_URL=https://rpc.mainnet.near.org
-NEAR_NETWORK_ID=mainnet
+**Identity**
+*   `SOLVER_PRIVATE_KEY`: NEAR private key (ed25519) for signing intents.
+*   `SOLVER_ID`: NEAR account ID.
+*   `HYPERLIQUID_PRIVATE_KEY`: Ethereum-style private key for hedging.
+*   `HYPERLIQUID_WALLET_ADDRESS`: Associated wallet address.
 
-# --- Hyperliquid ---
-HYPERLIQUID_MAINNET=true
+**Strategy Constraints**
+*   `MAX_BTC_INVENTORY`: Maximum BTC to hold (e.g., `5.0`).
+*   `MIN_TRADE_SIZE_BTC`: Minimum quote size (e.g., `0.0001`).
+*   `MAX_TRADE_SIZE_BTC`: Maximum quote size (e.g., `1.0`).
+*   `TARGET_SPREAD_BIPS`: Target spread in basis points (e.g., `200` = 2%).
+*   `DRIFT_THRESHOLD_BTC`: Alert threshold for inventory drift (e.g., `0.001`).
 
-# --- Strategy Constraints ---
-# Base Asset: USDT (usdt.tether-token.near)
-MAX_BTC_INVENTORY=5.0
-MIN_USDT_RESERVE=2000
-TARGET_SPREAD_BIPS=200  # 2.0%
-MIN_HOURLY_FUNDING_RATE=-0.0005 # -0.05%
-DRIFT_THRESHOLD_BTC=0.001
-```
+**Network**
+*   `API_PORT`: Port for the API and Dashboard (default `3000`).
+*   `SOLVER_BUS_WS_URL`: WebSocket URL for the Solver Bus.
+
+---
 
 ## 📦 Installation & Usage
 
-1.  **Install Dependencies**:
-    ```bash
-    npm install
-    ```
+### 1. Install Dependencies
+```bash
+npm install
+```
 
-2.  **Build**:
-    ```bash
-    npm run build
-    ```
+### 2. Build the Project
+```bash
+npm run build
+```
 
-3.  **Verify Hyperliquid Connection**:
-    Runs a script to fetch the orderbook and current funding rate.
-    ```bash
-    npm run test-hl
-    ```
+### 3. Start the Solver
+```bash
+npm start
+```
+*   This will start the Solver, API, and Web Dashboard.
+*   Console logs will show "Connected to Solver Bus" and "Hyperliquid Connected".
 
-4.  **Start the Solver**:
-    ```bash
-    npm start
-    ```
+### 4. Verify Operation
+*   Open `http://localhost:3000/dashboard.html`.
+*   Check `logs/trades.jsonl` to see generated quotes.
+
+---
+
+## 🚨 Operational Guide
+
+### Monitoring for Issues
+1.  **Hedge Failures**: Check the dashboard "Hedge Failures" count or grep logs for `HEDGE_FAILED`.
+2.  **Inventory Drift**: The `CronService` checks drift every 10 minutes. Using the API `/api/positions`, ensure `Net Delta` is near zero.
+3.  **Margin**: Monitor `Available Margin` on the dashboard. Ensure `MIN_MARGIN_THRESHOLD` in config is appropriate.
+
+### Accounting & Reporting
+To generate a monthly report of all trades:
+```bash
+curl "http://localhost:3000/api/export/trades.csv" > monthly_report.csv
+```
+
+### Emergency Shutdown
+The solver handles `SIGINT` (Ctrl+C) and `SIGTERM` gracefully:
+1.  Stops accepting new quotes.
+2.  Closes WebSocket connections.
+3.  Stops all internal timers.
 
 ---
 
 ## ☁️ Production Deployment (AWS EC2)
 
-This workflow outlines the "Happy Path" for deploying the Delta-Neutral Solver to a fresh AWS EC2 instance (Ubuntu/Amazon Linux 2).
+### Recommended Specs
+*   **Instance**: `t3.micro` or `t3.small` (Ubuntu 22.04 LTS).
+*   **Firewall**: Allow Inbound TCP 3000 (if exposing dashboard publicly, otherwise SSH tunnel).
 
-### 1. Provision EC2 Instance
-- **OS**: Ubuntu 22.04 LTS (Recommended) or Amazon Linux 2023.
-- **Type**: `t3.micro` or `t3.small` (Process is lightweight, mainly WebSocket wait times).
-- **Security Group**: Allow outbound traffic. No inbound ports strictly required unless you want to expose metrics.
-
-### 2. Connect & Setup Environment
-SSH into your instance:
-```bash
-ssh -i key.pem ubuntu@<ec2-ip>
-```
-
-Install Dependencies (Node.js 18+ & Git):
-```bash
-# Ubuntu
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-sudo apt-get install -y nodejs git build-essential
-
-# Install PM2 globally
-sudo npm install -g pm2 ts-node typescript
-```
-
-### 3. Clone & Configure
-Clone the repository:
-```bash
-git clone <your-repo-url>
-cd near-delta-neutral-solver
-```
-
-Create Production Environment Config:
-```bash
-nano .env
-# Paste your production keys here
-```
-
-### 4. Build & Start
-Install dependencies and build the TypeScript code:
-```bash
-npm install
-npm run build
-```
-
-Start with PM2 (using the `ecosystem.config.js` included in this repo):
-```bash
-pm2 start ecosystem.config.js
-```
-
-### 5. Post-Deployment
-Save the process list to resurrect on reboot:
-```bash
-pm2 save
-pm2 startup
-# Follow the command output to enable systemd
-```
-
-Monitor logs:
-```bash
-pm2 logs near-delta-neutral-solver
-```
+### Setup using PM2
+1.  Install PM2: `sudo npm install -g pm2`
+2.  Start:
+    ```bash
+    pm2 start ecosystem.config.js
+    ```
+3.  Monitor:
+    ```bash
+    pm2 monit
+    ```
+4.  Logs:
+    ```bash
+    pm2 logs near-delta-neutral-solver
+    ```

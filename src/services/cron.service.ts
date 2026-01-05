@@ -1,5 +1,7 @@
+
 import { NearService } from './near.service';
 import { HyperliquidService } from './hyperliquid.service';
+import { LoggerService } from './logger.service';
 import { BTC_ONLY_CONFIG } from '../configs/btc-only.config';
 
 export class CronService {
@@ -7,46 +9,61 @@ export class CronService {
 
     constructor(
         private nearService: NearService,
-        private hlService: HyperliquidService
+        private hlService: HyperliquidService,
+        private logger: LoggerService
     ) { }
 
     start() {
-        console.log("Starting Drfit Monitor Cron...");
-        // Run every hour
-        this.interval = setInterval(() => this.checkDrift(), 60 * 60 * 1000);
+        // Run every 10 minutes (checking drift)
+        this.interval = setInterval(() => this.checkDrift(), 10 * 60 * 1000);
+        console.log("Cron Service Started.");
 
-        // Also run once on startup after short delay
-        setTimeout(() => this.checkDrift(), 10000);
+        // Initial check
+        this.checkDrift();
     }
 
     async checkDrift() {
         try {
             console.log("Running Drift Check...");
             // Spot Balance (Long) vs Perp Position (Short)
-            // They should be equal in magnitude.
-            // Net Delta = Spot - |Perp_Short|
 
             const spotBtcBN = await this.nearService.getBalance(BTC_ONLY_CONFIG.BTC_TOKEN_ID);
+            const spotUsdtBN = await this.nearService.getBalance(BTC_ONLY_CONFIG.USDT_TOKEN_ID);
+
             const spotBtc = spotBtcBN.div(1e8).toNumber();
+            const spotUsdt = spotUsdtBN.div(1e6).toNumber();
 
             const perpPos = await this.hlService.getBtcPosition();
-            // perpPos is negative if short.
-
-            // Net Delta = spotBtc + perpPos. (e.g. 1.0 + (-1.0) = 0)
+            const availableMargin = await this.hlService.getAvailableMargin();
             const netDelta = spotBtc + perpPos;
 
-            console.log(`[Drift Check] Spot: ${spotBtc}, Perp: ${perpPos}, Net Delta: ${netDelta}`);
+            console.log(`[Drift Check]Spot: ${spotBtc}, Perp: ${perpPos}, Net Delta: ${netDelta} `);
+
+            this.logger.logPosition({
+                spotBtc,
+                spotUsdt,
+                perpPosition: perpPos,
+                netDelta,
+                availableMargin
+            });
 
             if (Math.abs(netDelta) > BTC_ONLY_CONFIG.DRIFT_THRESHOLD_BTC) {
                 console.error(`[CRITICAL] HIGH INVENTORY DRIFT DETECTED: ${netDelta} BTC`);
                 console.error("Please rebalance manually or enable auto-rebalancer.");
-                // Todo: Implement auto-rebalance if enabled (execute hedge to close delta)
             } else {
                 console.log("[Drift Check] Delta is balanced.");
             }
 
         } catch (e) {
             console.error("Drift Check Failed:", e);
+        }
+    }
+
+    stop() {
+        if (this.interval) {
+            clearInterval(this.interval);
+            this.interval = null;
+            console.log("Cron Service Stopped.");
         }
     }
 }

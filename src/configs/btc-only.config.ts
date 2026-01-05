@@ -20,4 +20,6 @@ export const BTC_ONLY_CONFIG = {
     MIN_MARGIN_THRESHOLD: parseFloat(process.env.MIN_MARGIN_THRESHOLD || '1000.0'), // Min USDC margin on HL
     MIN_HOURLY_FUNDING_RATE: parseFloat(process.env.MIN_HOURLY_FUNDING_RATE || '-0.0005'), // -0.05% per hour
     DRIFT_THRESHOLD_BTC: parseFloat(process.env.DRIFT_THRESHOLD_BTC || '0.001'),
+    MIN_TRADE_SIZE_BTC: parseFloat(process.env.MIN_TRADE_SIZE_BTC || '0.0001'),
+    MAX_TRADE_SIZE_BTC: parseFloat(process.env.MAX_TRADE_SIZE_BTC || '1.0'),
 };

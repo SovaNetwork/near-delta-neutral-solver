@@ -56,4 +56,19 @@ export class NearService {
             args
         });
     }
+
+    async sign(message: string): Promise<string> {
+        if (!this.near) throw new Error("NearService not initialized");
+        const keyStore = (this.near.connection.signer as any).keyStore;
+        const keyPair = await keyStore.getKey(NEAR_CONFIG.networkId, NEAR_CONFIG.SOLVER_ID);
+        if (!keyPair) throw new Error("No private key found for signing");
+
+        const msgBuffer = Buffer.from(message);
+        const signature = keyPair.sign(msgBuffer);
+        return Buffer.from(signature.signature).toString('hex');
+    }
+
+    async wasNonceUsed(nonce: string): Promise<boolean> {
+        return this.viewContract(NEAR_CONFIG.INTENTS_CONTRACT_ID, 'is_nonce_used', { nonce });
+    }
 }
