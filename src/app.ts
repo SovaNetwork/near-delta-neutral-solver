@@ -95,7 +95,16 @@ async function connectToBusWithRetry(
     }
 
     console.log(`Connecting to Solver Bus: ${SOLVER_BUS_WS}`);
-    const ws = new WebSocket(SOLVER_BUS_WS);
+
+    const wsOptions: any = {};
+    if (process.env.RELAY_AUTH_KEY) {
+        wsOptions.headers = {
+            'Authorization': process.env.RELAY_AUTH_KEY
+        };
+        console.log("Using RELAY_AUTH_KEY for connection.");
+    }
+
+    const ws = new WebSocket(SOLVER_BUS_WS, wsOptions);
     ctx.ws = ws;
 
     ws.on('open', () => {
