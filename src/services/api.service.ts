@@ -8,6 +8,7 @@ import { BTC_ONLY_CONFIG } from '../configs/btc-only.config';
 
 export class ApiService {
     private app: express.Application;
+    private logger: LoggerService;
     private port: number;
     private server: any;
 
@@ -15,10 +16,12 @@ export class ApiService {
         private hedger: HedgerService,
         private hlService: HyperliquidService,
         private nearService: NearService,
-        private logger: LoggerService
+        logger: LoggerService,
+        port: number
     ) {
+        this.logger = logger;
+        this.port = port || 3000;
         this.app = express();
-        this.port = parseInt(process.env.API_PORT || '3000');
 
         this.setupRoutes();
     }

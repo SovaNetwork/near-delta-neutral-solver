@@ -136,6 +136,31 @@ The solver handles `SIGINT` (Ctrl+C) and `SIGTERM` gracefully:
 
 ---
 
+## 🚂 Deployment: Railway (Easiest)
+
+This approach is simpler than AWS and handles building, running, and restarting automatically.
+
+### 1. Prerequisites
+*   A [Railway](https://railway.app/) account.
+*   Your project pushed to GitHub.
+
+### 2. Deploy
+1.  **New Project**: Go to Railway dashboard -> "New Project" -> "Deploy from GitHub repo".
+2.  **Select Repo**: Choose this repository.
+3.  **Settings**:
+    *   **Build Command**: `npm run build`
+    *   **Start Command**: `npm start`
+    *   **Variables**:
+        *   Add all keys from `.env`.
+        *   Set `API_PORT` to `PORT` (Railway dynamic port).
+    *   **Region**: Go to Settings -> Service Region. **Ensure it is NOT in the US** (e.g., choose "Asia (Tokyo)" or "Europe").
+
+### 3. Public Domain (Optional)
+*   Go to **Settings** -> **Networking** -> **Generate Domain**.
+*   This gives you a public URL (e.g., `solver-production.up.railway.app`) to access your dashboard.
+
+---
+
 ## ☁️ Production Deployment (AWS EC2)
 
 ### Recommended Specs

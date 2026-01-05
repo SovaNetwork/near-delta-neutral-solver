@@ -40,11 +40,14 @@ async function main() {
     const hlService = new HyperliquidService();
     await hlService.init();
 
+    // Use PORT env var if available (Railway uses this), otherwise fallback to API_PORT or 3000
+    const port = process.env.PORT ? parseInt(process.env.PORT) : (parseInt(process.env.API_PORT || '3000'));
+
     const inventoryManager = new InventoryStateService(nearService, hlService);
     const quoterService = new QuoterService(inventoryManager, hlService, nearService, logger);
     const hedgerService = new HedgerService(nearService, hlService, logger);
     const cronService = new CronService(nearService, hlService, logger);
-    const apiService = new ApiService(hedgerService, hlService, nearService, logger);
+    const apiService = new ApiService(hedgerService, hlService, nearService, logger, port);
 
     hedgerService.start();
     cronService.start();
