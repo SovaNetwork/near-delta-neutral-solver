@@ -29,6 +29,11 @@ async function main() {
     console.log("Starting Delta-Neutral Solver...");
 
     // 0. Config Validation
+    console.log("Environment Check:");
+    console.log("SOLVER_ID:", process.env.SOLVER_ID);
+    console.log("SOLVER_PRIVATE_KEY Present:", !!process.env.SOLVER_PRIVATE_KEY);
+    console.log("SOLVER_PRIVATE_KEY Length:", process.env.SOLVER_PRIVATE_KEY ? process.env.SOLVER_PRIVATE_KEY.length : 0);
+
     if (!process.env.SOLVER_PRIVATE_KEY) throw new Error("Missing SOLVER_PRIVATE_KEY");
     if (!process.env.SOLVER_ID) throw new Error("Missing SOLVER_ID");
 
