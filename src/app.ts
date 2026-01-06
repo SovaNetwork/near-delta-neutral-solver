@@ -113,19 +113,41 @@ async function connectToBusWithRetry(
     ws.on('open', () => {
         console.log('Connected to Solver Bus');
         reconnectAttempts = 0; // Reset on success
-        ws.send(JSON.stringify({ method: 'subscribe', topic: 'quote_request' }));
+        ws.send(JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'subscribe',
+            params: ['quote']
+        }));
+        console.log('Subscribed to quote stream');
     });
 
     ws.on('message', async (data: string) => {
         try {
             const msg = JSON.parse(data.toString());
-            // Filter heartbeats or other messages
-            if (!msg.type || msg.type !== 'quote_request' || !msg.payload) return;
 
-            const req = msg.payload;
+            // Handle subscription confirmation (has 'result' field)
+            if (msg.result) {
+                console.log('Subscription confirmed:', msg.result);
+                return;
+            }
+
+            // Parse quote request: { jsonrpc: "2.0", method: "subscribe", params: { subscription, quote_id, ... } }
+            const params = msg.params;
+            if (!params || !params.quote_id) return;
+
+            // Map defuse field names to our internal format
+            const req = {
+                token_in: params.defuse_asset_identifier_in,
+                token_out: params.defuse_asset_identifier_out,
+                amount_in: params.exact_amount_in || params.exact_amount_out
+            };
+
+            console.log(`📨 Quote request: ${req.token_in} → ${req.token_out}, amount: ${req.amount_in}`);
 
             // Validate Token Support
             if (req.token_in !== BTC_ONLY_CONFIG.BTC_TOKEN_ID && req.token_in !== BTC_ONLY_CONFIG.USDT_TOKEN_ID) {
+                console.log(`❌ Unsupported token: ${req.token_in}`);
                 return;
             }
 
