@@ -3,724 +3,346 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NEAR Delta-Neutral Solver Dashboard</title>
+    <title>Solver Dashboard</title>
     <style>
+        * { box-sizing: border-box; }
         :root {
-            --bg-color: #0d1117;
-            --card-bg: #161b22;
-            --text-primary: #c9d1d9;
-            --text-secondary: #8b949e;
-            --border-color: #30363d;
-            --accent-green: #238636;
-            --accent-red: #da3633;
-            --accent-blue: #58a6ff;
-            --accent-yellow: #d29922;
-            --accent-purple: #8957e5;
+            --bg: #0d1117;
+            --card: #161b22;
+            --border: #30363d;
+            --text: #c9d1d9;
+            --muted: #8b949e;
+            --green: #3fb950;
+            --red: #f85149;
+            --blue: #58a6ff;
+            --yellow: #d29922;
         }
-
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-            background-color: var(--bg-color);
-            color: var(--text-primary);
+            background: var(--bg);
+            color: var(--text);
             margin: 0;
-            padding: 20px;
+            padding: 16px;
+            font-size: 14px;
         }
-
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-        }
-
-        h1 {
-            border-bottom: 1px solid var(--border-color);
-            padding-bottom: 10px;
-            margin-bottom: 20px;
+        .header {
             display: flex;
             justify-content: space-between;
             align-items: center;
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid var(--border);
         }
+        .header h1 { margin: 0; font-size: 1.4em; }
+        .status { padding: 4px 10px; border-radius: 4px; font-size: 0.8em; font-weight: 600; }
+        .status.online { background: var(--green); color: #000; }
+        .status.offline { background: var(--red); color: #fff; }
 
-        .grid {
+        .stats-row {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-            gap: 16px;
-            margin-bottom: 20px;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 12px;
+            margin-bottom: 16px;
         }
-
-        .grid-2 {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 16px;
-            margin-bottom: 20px;
-        }
-
-        @media (max-width: 900px) {
-            .grid-2 { grid-template-columns: 1fr; }
-        }
-
-        .card {
-            background-color: var(--card-bg);
-            border: 1px solid var(--border-color);
+        .stat-card {
+            background: var(--card);
+            border: 1px solid var(--border);
             border-radius: 6px;
-            padding: 16px;
+            padding: 12px;
         }
+        .stat-label { color: var(--muted); font-size: 0.75em; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+        .stat-value { font-size: 1.5em; font-weight: bold; font-family: monospace; }
+        .stat-value.green { color: var(--green); }
+        .stat-value.red { color: var(--red); }
+        .stat-value.yellow { color: var(--yellow); }
+        .stat-row { display: flex; justify-content: space-between; margin-top: 8px; font-size: 0.85em; }
+        .stat-row .label { color: var(--muted); }
 
-        .card h2 {
-            margin: 0 0 12px 0;
-            font-size: 0.85em;
+        .section { margin-bottom: 16px; }
+        .section-title {
+            font-size: 0.75em;
             text-transform: uppercase;
             letter-spacing: 0.5px;
-            color: var(--text-secondary);
-        }
-
-        .metric {
-            display: flex;
-            justify-content: space-between;
+            color: var(--muted);
             margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .section-title::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: var(--border);
         }
 
-        .metric label {
-            color: var(--text-secondary);
+        /* Quote table */
+        .quote-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            overflow: hidden;
         }
-
-        .value {
-            font-family: monospace;
-            font-weight: bold;
+        .quote-table th {
+            text-align: left;
+            padding: 10px 12px;
+            font-size: 0.7em;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--muted);
+            background: rgba(0,0,0,0.2);
+            border-bottom: 1px solid var(--border);
         }
-
-        .big-value {
-            font-size: 2em;
-            font-weight: bold;
-            font-family: monospace;
+        .quote-table td {
+            padding: 10px 12px;
+            border-bottom: 1px solid var(--border);
+            vertical-align: middle;
         }
+        .quote-table tr:last-child td { border-bottom: none; }
+        .quote-table tr:hover { background: rgba(255,255,255,0.02); }
 
-        .status-ok { color: var(--accent-green); }
-        .status-warn { color: var(--accent-yellow); }
-        .status-error { color: var(--accent-red); }
-
-        /* Event badges */
+        .quote-id { font-family: monospace; color: var(--blue); font-size: 0.9em; }
         .badge {
-            padding: 3px 8px;
-            border-radius: 4px;
-            font-size: 0.75em;
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 0.7em;
             font-weight: 600;
             text-transform: uppercase;
-            letter-spacing: 0.3px;
         }
-        .badge-PUBLISHED { background: var(--accent-green); color: white; }
-        .badge-REJECTED { background: var(--accent-red); color: white; }
-        .badge-TRACKING { background: var(--accent-blue); color: white; }
-        .badge-SETTLED { background: var(--accent-purple); color: white; }
-        .badge-HEDGED { background: #238636; color: white; }
-        .badge-EXPIRED { background: var(--accent-yellow); color: black; }
-        .badge-FAILED { background: #da3633; color: white; }
-        .badge-short { background: #f85149; color: white; }
-        .badge-long { background: #3fb950; color: white; }
-        .badge-buy { background: #3fb950; color: white; }
-        .badge-sell { background: #f85149; color: white; }
+        .badge.buy { background: rgba(63, 185, 80, 0.2); color: var(--green); }
+        .badge.sell { background: rgba(248, 81, 73, 0.2); color: var(--red); }
+        .badge.won { background: var(--green); color: #000; }
+        .badge.lost { background: var(--red); color: #fff; }
+        .badge.pending { background: var(--blue); color: #fff; }
+        .badge.expired { background: var(--yellow); color: #000; }
 
-        /* Activity feed */
-        .activity-feed {
-            max-height: 500px;
-            overflow-y: auto;
-        }
+        .amount { font-family: monospace; }
+        .timing { font-family: monospace; font-size: 0.85em; }
+        .timing.fast { color: var(--green); }
+        .timing.slow { color: var(--yellow); }
+        .timing.very-slow { color: var(--red); }
 
-        .activity-item {
-            display: grid;
-            grid-template-columns: 70px 90px 70px 1fr auto;
-            gap: 12px;
-            padding: 10px 0;
-            border-bottom: 1px solid var(--border-color);
-            align-items: center;
-            font-size: 0.9em;
-        }
-
-        .activity-item:last-child {
-            border-bottom: none;
-        }
-
-        .activity-time {
-            color: var(--text-secondary);
-            font-family: monospace;
-            font-size: 0.85em;
-        }
-
-        .activity-id {
-            font-family: monospace;
-            color: var(--accent-blue);
-            font-size: 0.85em;
-        }
-
-        .activity-details {
-            color: var(--text-secondary);
-            font-size: 0.85em;
-        }
-
-        .activity-timing {
-            font-family: monospace;
-            font-size: 0.8em;
-            color: var(--text-secondary);
-            text-align: right;
-        }
-
-        .timing-fast { color: var(--accent-green); }
-        .timing-slow { color: var(--accent-yellow); }
-        .timing-very-slow { color: var(--accent-red); }
-
-        /* Pending quotes */
-        .pending-item {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 8px 0;
-            border-bottom: 1px solid var(--border-color);
-        }
-
-        .pending-item:last-child {
-            border-bottom: none;
-        }
-
-        .win-rate-bar {
-            height: 8px;
-            background: var(--border-color);
-            border-radius: 4px;
-            overflow: hidden;
-            margin-top: 8px;
-        }
-
-        .win-rate-fill {
-            height: 100%;
-            background: linear-gradient(90deg, var(--accent-green), var(--accent-blue));
-            transition: width 0.3s ease;
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: var(--muted);
         }
 
         .btn {
-            background-color: var(--card-bg);
-            border: 1px solid var(--border-color);
-            color: var(--accent-blue);
-            padding: 5px 10px;
+            background: var(--card);
+            border: 1px solid var(--border);
+            color: var(--blue);
+            padding: 6px 12px;
             border-radius: 4px;
             text-decoration: none;
-            font-size: 0.9em;
-            cursor: pointer;
-        }
-        .btn:hover {
-            background-color: var(--border-color);
-        }
-
-        .legend {
-            display: flex;
-            gap: 16px;
-            flex-wrap: wrap;
-            margin-bottom: 12px;
-            font-size: 0.8em;
-        }
-
-        .legend-item {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-
-        /* Quote groups */
-        .quote-group {
-            border: 1px solid var(--border-color);
-            border-radius: 6px;
-            margin-bottom: 12px;
-            overflow: hidden;
-        }
-
-        .quote-group.highlight {
-            border-color: var(--accent-blue);
-            box-shadow: 0 0 0 1px var(--accent-blue);
-        }
-
-        .quote-group-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 10px 12px;
-            background: rgba(88, 166, 255, 0.1);
-            border-bottom: 1px solid var(--border-color);
-        }
-
-        .quote-group-header .quote-id {
-            font-family: monospace;
-            font-weight: bold;
-            color: var(--accent-blue);
-        }
-
-        .quote-group-header .quote-summary {
             font-size: 0.85em;
-            color: var(--text-secondary);
         }
-
-        .quote-group-events {
-            padding: 0;
-        }
-
-        .quote-event {
-            display: grid;
-            grid-template-columns: 70px 90px 1fr auto;
-            gap: 12px;
-            padding: 8px 12px;
-            align-items: center;
-            font-size: 0.85em;
-            border-bottom: 1px solid var(--border-color);
-        }
-
-        .quote-event:last-child {
-            border-bottom: none;
-        }
-
-        .quote-event.latest {
-            background: rgba(35, 134, 54, 0.1);
-        }
-
-        /* Latest quote card */
-        .latest-quote {
-            background: linear-gradient(135deg, rgba(88, 166, 255, 0.1), rgba(137, 87, 229, 0.1));
-            border: 1px solid var(--accent-blue);
-            border-radius: 8px;
-            padding: 16px;
-            margin-bottom: 16px;
-        }
-
-        .latest-quote-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 12px;
-        }
-
-        .latest-quote-id {
-            font-family: monospace;
-            font-size: 1.2em;
-            font-weight: bold;
-            color: var(--accent-blue);
-        }
-
-        .latest-quote-flow {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            flex-wrap: wrap;
-        }
-
-        .flow-step {
-            display: flex;
-            align-items: center;
-            gap: 4px;
-        }
-
-        .flow-arrow {
-            color: var(--text-secondary);
-            font-size: 1.2em;
-        }
-
-        .flow-step.completed .badge {
-            opacity: 0.6;
-        }
-
-        .flow-step.current .badge {
-            box-shadow: 0 0 8px currentColor;
-        }
+        .btn:hover { background: var(--border); }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>
-            Solver Dashboard
-            <div>
-                <span id="health-status" class="badge">Checking...</span>
-                <a href="/api/export/trades.csv" class="btn">Export CSV</a>
-            </div>
-        </h1>
-
-        <div class="grid">
-            <div class="card">
-                <h2>Positions</h2>
-                <div class="metric"><label>Spot BTC</label> <span id="spot-btc" class="value">-</span></div>
-                <div class="metric"><label>Spot USDT</label> <span id="spot-usdt" class="value">-</span></div>
-                <div class="metric"><label>Perp Position</label> <span id="perp-pos" class="value">-</span></div>
-                <div class="metric" style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-color);">
-                    <label>Net Delta</label>
-                    <span id="net-delta" class="value">-</span>
-                </div>
-            </div>
-
-            <div class="card">
-                <h2>Quote Performance (24h)</h2>
-                <div style="display: flex; justify-content: space-between; align-items: flex-end;">
-                    <div>
-                        <div class="big-value status-ok" id="win-rate">-</div>
-                        <div style="color: var(--text-secondary); font-size: 0.85em;">Win Rate</div>
-                    </div>
-                    <div style="text-align: right;">
-                        <div><span class="value status-ok" id="stats-published">-</span> <span style="color: var(--text-secondary);">won</span></div>
-                        <div><span class="value status-error" id="stats-rejected">-</span> <span style="color: var(--text-secondary);">lost</span></div>
-                    </div>
-                </div>
-                <div class="win-rate-bar">
-                    <div class="win-rate-fill" id="win-rate-bar" style="width: 0%"></div>
-                </div>
-            </div>
-
-            <div class="card">
-                <h2>Hedging (24h)</h2>
-                <div class="metric"><label>Hedges Executed</label> <span id="stats-hedges" class="value">-</span></div>
-                <div class="metric"><label>Volume</label> <span id="stats-volume" class="value">-</span></div>
-                <div class="metric"><label>Failures</label> <span id="stats-failures" class="value status-error">-</span></div>
-            </div>
-
-            <div class="card">
-                <h2>Pending Quotes</h2>
-                <div id="pending-list" style="max-height: 120px; overflow-y: auto;">
-                    <div style="color: var(--text-secondary); font-style: italic;">None</div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Latest Quote Status -->
-        <div class="latest-quote" id="latest-quote" style="display: none;">
-            <div class="latest-quote-header">
-                <div>
-                    <span style="color: var(--text-secondary); font-size: 0.8em; text-transform: uppercase;">Latest Quote</span>
-                    <span class="latest-quote-id" id="latest-quote-id">-</span>
-                </div>
-                <div id="latest-quote-summary" style="text-align: right; font-size: 0.9em;"></div>
-            </div>
-            <div class="latest-quote-flow" id="latest-quote-flow"></div>
-        </div>
-
-        <div class="card">
-            <h2>Quote History (grouped by ID)</h2>
-            <div class="legend">
-                <div class="legend-item"><span class="badge badge-PUBLISHED">Published</span> Quote accepted</div>
-                <div class="legend-item"><span class="badge badge-REJECTED">Rejected</span> Lost to other solver</div>
-                <div class="legend-item"><span class="badge badge-SETTLED">Settled</span> User took quote</div>
-                <div class="legend-item"><span class="badge badge-HEDGED">Hedged</span> Position hedged</div>
-                <div class="legend-item"><span class="badge badge-EXPIRED">Expired</span> No settlement</div>
-            </div>
-            <div class="activity-feed" id="activity-feed">
-                <div style="color: var(--text-secondary); padding: 20px; text-align: center;">Loading...</div>
-            </div>
+    <div class="header">
+        <h1>Solver Dashboard</h1>
+        <div style="display: flex; gap: 8px; align-items: center;">
+            <span id="status" class="status">...</span>
+            <a href="/api/export/trades.csv" class="btn">Export CSV</a>
         </div>
     </div>
 
+    <div class="stats-row">
+        <div class="stat-card">
+            <div class="stat-label">Win Rate (24h)</div>
+            <div class="stat-value" id="win-rate">-</div>
+            <div class="stat-row">
+                <span><span class="label">Won:</span> <span id="won-count">0</span></span>
+                <span><span class="label">Lost:</span> <span id="lost-count">0</span></span>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Net Delta</div>
+            <div class="stat-value" id="net-delta">-</div>
+            <div class="stat-row">
+                <span><span class="label">Spot:</span> <span id="spot-btc">-</span></span>
+                <span><span class="label">Perp:</span> <span id="perp-pos">-</span></span>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Volume (24h)</div>
+            <div class="stat-value" id="volume">-</div>
+            <div class="stat-row">
+                <span><span class="label">Hedges:</span> <span id="hedges">0</span></span>
+                <span><span class="label">Failures:</span> <span id="failures" style="color: var(--red);">0</span></span>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">USDT Balance</div>
+            <div class="stat-value" id="spot-usdt">-</div>
+        </div>
+    </div>
+
+    <div class="section">
+        <div class="section-title">Recent Quotes</div>
+        <table class="quote-table">
+            <thead>
+                <tr>
+                    <th>Time</th>
+                    <th>ID</th>
+                    <th>Side</th>
+                    <th>Amount</th>
+                    <th>Result</th>
+                    <th style="text-align: right;">Latency</th>
+                </tr>
+            </thead>
+            <tbody id="quotes-body">
+                <tr><td colspan="6" class="empty-state">Loading...</td></tr>
+            </tbody>
+        </table>
+    </div>
+
     <script>
-        function formatEventType(type) {
-            const map = {
-                'QUOTE_PUBLISHED': 'PUBLISHED',
-                'QUOTE_REJECTED': 'REJECTED',
-                'QUOTE_EXPIRED': 'EXPIRED',
-                'SETTLEMENT_DETECTED': 'SETTLED',
-                'HEDGE_EXECUTED': 'HEDGED',
-                'HEDGE_FAILED': 'FAILED'
-            };
-            return map[type] || type;
-        }
-
         function getTimingClass(ms) {
-            if (ms < 100) return 'timing-fast';
-            if (ms < 200) return 'timing-slow';
-            return 'timing-very-slow';
+            if (ms < 100) return 'fast';
+            if (ms < 200) return 'slow';
+            return 'very-slow';
         }
 
-        function formatTiming(trade) {
-            if (trade.timings && trade.timings.total) {
-                const total = trade.timings.total;
-                const cls = getTimingClass(total);
-                return `<span class="${cls}">${total}ms</span>`;
+        function getResult(trade) {
+            const type = trade.type;
+            if (type === 'QUOTE_PUBLISHED') {
+                return { text: 'PENDING', class: 'pending' };
+            } else if (type === 'QUOTE_REJECTED') {
+                return { text: 'LOST', class: 'lost' };
+            } else if (type === 'HEDGE_EXECUTED') {
+                return { text: 'WON', class: 'won' };
+            } else if (type === 'QUOTE_EXPIRED') {
+                return { text: 'EXPIRED', class: 'expired' };
+            } else if (type === 'HEDGE_FAILED') {
+                return { text: 'FAILED', class: 'lost' };
             }
-            return '';
-        }
-
-        // Group trades by nonce
-        function groupByNonce(trades) {
-            const groups = new Map();
-
-            for (const trade of trades) {
-                const nonce = trade.nonce || 'unknown';
-                if (!groups.has(nonce)) {
-                    groups.set(nonce, {
-                        nonce,
-                        shortId: nonce.substring(0, 8),
-                        events: [],
-                        direction: trade.direction,
-                        amountBtc: trade.amountBtc,
-                        firstTime: trade.timestamp,
-                        lastTime: trade.timestamp,
-                        finalState: null
-                    });
-                }
-
-                const group = groups.get(nonce);
-                group.events.push(trade);
-                group.lastTime = trade.timestamp;
-
-                // Track the final/current state
-                const eventType = formatEventType(trade.type);
-                if (['REJECTED', 'HEDGED', 'EXPIRED', 'FAILED'].includes(eventType)) {
-                    group.finalState = eventType;
-                } else if (!group.finalState) {
-                    group.finalState = eventType;
-                }
-            }
-
-            return Array.from(groups.values()).sort((a, b) =>
-                new Date(b.lastTime) - new Date(a.lastTime)
-            );
-        }
-
-        // Get the lifecycle flow for a quote
-        function getQuoteFlow(events) {
-            const flow = [];
-            const seen = new Set();
-
-            for (const e of events) {
-                const type = formatEventType(e.type);
-                if (!seen.has(type)) {
-                    seen.add(type);
-                    flow.push({ type, time: e.timestamp, data: e });
-                }
-            }
-
-            return flow;
-        }
-
-        // Render the latest quote card
-        function renderLatestQuote(group) {
-            const container = document.getElementById('latest-quote');
-            const idEl = document.getElementById('latest-quote-id');
-            const summaryEl = document.getElementById('latest-quote-summary');
-            const flowEl = document.getElementById('latest-quote-flow');
-
-            if (!group) {
-                container.style.display = 'none';
-                return;
-            }
-
-            container.style.display = 'block';
-            idEl.textContent = group.shortId;
-
-            // Summary
-            const dir = group.direction ? `<span class="badge badge-${group.direction}">${group.direction}</span>` : '';
-            const amt = group.amountBtc ? `${group.amountBtc.toFixed(6)} BTC` : '';
-            summaryEl.innerHTML = `${dir} ${amt}`;
-
-            // Flow visualization
-            const flow = getQuoteFlow(group.events);
-            const allSteps = ['PUBLISHED', 'SETTLED', 'HEDGED'];
-            const rejectedFlow = ['REJECTED'];
-
-            // Determine which flow to show
-            const hasRejected = flow.some(f => f.type === 'REJECTED');
-            const stepsToShow = hasRejected ? rejectedFlow : allSteps;
-
-            let flowHtml = '';
-            for (let i = 0; i < stepsToShow.length; i++) {
-                const step = stepsToShow[i];
-                const flowItem = flow.find(f => f.type === step);
-                const isCompleted = !!flowItem;
-                const isCurrent = isCompleted && i === flow.length - 1;
-
-                if (i > 0) {
-                    flowHtml += `<span class="flow-arrow">→</span>`;
-                }
-
-                const stepClass = isCurrent ? 'current' : (isCompleted ? 'completed' : '');
-                const opacity = isCompleted ? '' : 'opacity: 0.3;';
-
-                flowHtml += `
-                    <div class="flow-step ${stepClass}">
-                        <span class="badge badge-${step}" style="${opacity}">${step}</span>
-                        ${flowItem && flowItem.data.timings ? `<span class="activity-timing">${flowItem.data.timings.total}ms</span>` : ''}
-                    </div>
-                `;
-            }
-
-            flowEl.innerHTML = flowHtml;
-        }
-
-        // Render grouped quotes
-        function renderQuoteGroups(groups) {
-            const feed = document.getElementById('activity-feed');
-
-            if (groups.length === 0) {
-                feed.innerHTML = '<div style="color: var(--text-secondary); padding: 20px; text-align: center;">No activity yet</div>';
-                return;
-            }
-
-            let html = '';
-
-            for (let i = 0; i < groups.length; i++) {
-                const group = groups[i];
-                const isLatest = i === 0;
-                const flow = getQuoteFlow(group.events);
-
-                // Determine outcome color
-                let outcomeClass = '';
-                let outcomeText = '';
-                if (group.finalState === 'REJECTED') {
-                    outcomeClass = 'status-error';
-                    outcomeText = 'Lost';
-                } else if (group.finalState === 'HEDGED') {
-                    outcomeClass = 'status-ok';
-                    outcomeText = 'Won + Hedged';
-                } else if (group.finalState === 'EXPIRED') {
-                    outcomeClass = 'status-warn';
-                    outcomeText = 'Expired';
-                } else if (group.finalState === 'PUBLISHED') {
-                    outcomeClass = 'status-ok';
-                    outcomeText = 'Awaiting...';
-                }
-
-                html += `
-                    <div class="quote-group ${isLatest ? 'highlight' : ''}">
-                        <div class="quote-group-header">
-                            <div>
-                                <span class="quote-id">${group.shortId}</span>
-                                ${group.direction ? `<span class="badge badge-${group.direction}" style="margin-left: 8px;">${group.direction}</span>` : ''}
-                                <span style="color: var(--text-secondary); margin-left: 8px;">${group.amountBtc ? group.amountBtc.toFixed(6) + ' BTC' : ''}</span>
-                            </div>
-                            <div class="quote-summary">
-                                <span class="${outcomeClass}">${outcomeText}</span>
-                            </div>
-                        </div>
-                        <div class="quote-group-events">
-                `;
-
-                // Show events in chronological order within the group
-                const sortedEvents = [...group.events].sort((a, b) =>
-                    new Date(a.timestamp) - new Date(b.timestamp)
-                );
-
-                for (const e of sortedEvents) {
-                    const eventType = formatEventType(e.type);
-                    const time = new Date(e.timestamp).toLocaleTimeString();
-                    const timing = formatTiming(e);
-
-                    let detail = '';
-                    if (e.reason === 'solver_lost') detail = 'Another solver won';
-                    else if (e.executionPrice) detail = `@ $${e.executionPrice.toFixed(2)}`;
-                    else if (e.error) detail = e.error.substring(0, 40);
-
-                    html += `
-                        <div class="quote-event">
-                            <span class="activity-time">${time}</span>
-                            <span class="badge badge-${eventType}">${eventType}</span>
-                            <span style="color: var(--text-secondary);">${detail}</span>
-                            <span class="activity-timing">${timing}</span>
-                        </div>
-                    `;
-                }
-
-                html += `
-                        </div>
-                    </div>
-                `;
-            }
-
-            feed.innerHTML = html;
+            return { text: type, class: '' };
         }
 
         async function fetchData() {
             try {
-                // 1. Health
+                // Health
                 const healthRes = await fetch('/health');
+                const statusEl = document.getElementById('status');
                 if (healthRes.ok) {
-                    const el = document.getElementById('health-status');
-                    el.textContent = 'ONLINE';
-                    el.style.backgroundColor = 'var(--accent-green)';
+                    statusEl.textContent = 'ONLINE';
+                    statusEl.className = 'status online';
+                } else {
+                    statusEl.textContent = 'OFFLINE';
+                    statusEl.className = 'status offline';
                 }
 
-                // 2. Positions
+                // Positions
                 const posRes = await fetch('/api/positions');
                 if (posRes.ok) {
                     const pos = await posRes.json();
-                    document.getElementById('spot-btc').textContent = pos.spotBtc.toFixed(8);
-                    document.getElementById('spot-usdt').textContent = pos.spotUsdt.toFixed(2);
-                    document.getElementById('perp-pos').textContent = pos.perpPosition.toFixed(8);
+                    document.getElementById('spot-btc').textContent = pos.spotBtc.toFixed(6);
+                    document.getElementById('spot-usdt').textContent = '$' + pos.spotUsdt.toFixed(2);
+                    document.getElementById('perp-pos').textContent = pos.perpPosition.toFixed(6);
 
                     const deltaEl = document.getElementById('net-delta');
-                    deltaEl.textContent = pos.netDelta.toFixed(8);
+                    deltaEl.textContent = pos.netDelta.toFixed(6);
                     if (Math.abs(pos.netDelta) > 0.001) {
-                        deltaEl.className = 'value status-error';
+                        deltaEl.className = 'stat-value red';
                     } else {
-                        deltaEl.className = 'value status-ok';
+                        deltaEl.className = 'stat-value green';
                     }
                 }
 
-                // 3. Stats
+                // Stats
                 const statsRes = await fetch('/api/stats');
                 if (statsRes.ok) {
                     const stats = await statsRes.json();
 
-                    // Win rate display
                     const winRateEl = document.getElementById('win-rate');
                     winRateEl.textContent = stats.winRate || '0%';
+                    const winNum = parseFloat(stats.winRate) || 0;
+                    winRateEl.className = 'stat-value ' + (winNum >= 50 ? 'green' : winNum >= 20 ? 'yellow' : 'red');
 
-                    const winRateNum = parseFloat(stats.winRate) || 0;
-                    document.getElementById('win-rate-bar').style.width = winRateNum + '%';
-
-                    if (winRateNum >= 50) {
-                        winRateEl.className = 'big-value status-ok';
-                    } else if (winRateNum >= 20) {
-                        winRateEl.className = 'big-value status-warn';
-                    } else {
-                        winRateEl.className = 'big-value status-error';
-                    }
-
-                    document.getElementById('stats-published').textContent = stats.quotesPublished || 0;
-                    document.getElementById('stats-rejected').textContent = stats.quotesRejected || 0;
-                    document.getElementById('stats-hedges').textContent = stats.hedgesExecuted;
-                    document.getElementById('stats-volume').textContent = stats.volumeBtc.toFixed(6) + ' BTC';
-                    document.getElementById('stats-failures').textContent = stats.failures;
+                    document.getElementById('won-count').textContent = stats.quotesPublished || 0;
+                    document.getElementById('lost-count').textContent = stats.quotesRejected || 0;
+                    document.getElementById('volume').textContent = (stats.volumeBtc || 0).toFixed(6) + ' BTC';
+                    document.getElementById('hedges').textContent = stats.hedgesExecuted || 0;
+                    document.getElementById('failures').textContent = stats.failures || 0;
                 }
 
-                // 4. Pending
-                const pendingRes = await fetch('/api/pending-quotes');
-                if (pendingRes.ok) {
-                    const pending = await pendingRes.json();
-                    const list = document.getElementById('pending-list');
-                    if (pending.length === 0) {
-                        list.innerHTML = '<div style="color: var(--text-secondary); font-style: italic;">No quotes awaiting settlement</div>';
-                    } else {
-                        list.innerHTML = pending.map(p => `
-                            <div class="pending-item">
-                                <span class="badge badge-${p.direction}">${p.direction}</span>
-                                <span class="value">${p.amountBtc.toFixed(6)} BTC</span>
-                                <span class="activity-id">${p.nonce.substring(0,8)}</span>
-                            </div>
-                        `).join('');
-                    }
-                }
-
-                // 5. Activity Feed - now grouped
+                // Quotes - filter to only actionable events (not QUOTE_GENERATED)
                 const tradesRes = await fetch('/api/trades?limit=100');
                 if (tradesRes.ok) {
                     const trades = await tradesRes.json();
-                    const groups = groupByNonce(trades);
 
-                    // Render latest quote card
-                    renderLatestQuote(groups[0]);
+                    // Filter: only show PUBLISHED, REJECTED, HEDGE_EXECUTED, EXPIRED, FAILED
+                    // Skip QUOTE_GENERATED and SETTLEMENT_DETECTED (intermediate states)
+                    const validTypes = ['QUOTE_PUBLISHED', 'QUOTE_REJECTED', 'HEDGE_EXECUTED', 'QUOTE_EXPIRED', 'HEDGE_FAILED'];
 
-                    // Render grouped history (limit to 20 groups)
-                    renderQuoteGroups(groups.slice(0, 20));
+                    // Group by nonce, keep only the final state for each
+                    const byNonce = new Map();
+                    for (const t of trades) {
+                        if (!t.nonce || !validTypes.includes(t.type)) continue;
+
+                        const existing = byNonce.get(t.nonce);
+                        // Priority: HEDGE_EXECUTED > HEDGE_FAILED > QUOTE_REJECTED > QUOTE_EXPIRED > QUOTE_PUBLISHED
+                        const priority = {
+                            'HEDGE_EXECUTED': 5,
+                            'HEDGE_FAILED': 4,
+                            'QUOTE_REJECTED': 3,
+                            'QUOTE_EXPIRED': 2,
+                            'QUOTE_PUBLISHED': 1
+                        };
+
+                        if (!existing || priority[t.type] > priority[existing.type]) {
+                            byNonce.set(t.nonce, t);
+                        }
+                    }
+
+                    // Sort by timestamp desc
+                    const quotes = Array.from(byNonce.values())
+                        .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+                        .slice(0, 30);
+
+                    const tbody = document.getElementById('quotes-body');
+
+                    if (quotes.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No quotes yet</td></tr>';
+                        return;
+                    }
+
+                    tbody.innerHTML = quotes.map(q => {
+                        const time = new Date(q.timestamp).toLocaleTimeString();
+                        const shortId = q.nonce.substring(0, 8);
+                        const side = q.direction || '-';
+                        const amount = q.amountBtc ? q.amountBtc.toFixed(6) : '-';
+                        const result = getResult(q);
+                        const latency = q.timings?.total;
+                        const latencyClass = latency ? getTimingClass(latency) : '';
+
+                        return `
+                            <tr>
+                                <td style="color: var(--muted);">${time}</td>
+                                <td><span class="quote-id">${shortId}</span></td>
+                                <td><span class="badge ${side}">${side.toUpperCase()}</span></td>
+                                <td class="amount">${amount} BTC</td>
+                                <td><span class="badge ${result.class}">${result.text}</span></td>
+                                <td style="text-align: right;" class="timing ${latencyClass}">${latency ? latency + 'ms' : '-'}</td>
+                            </tr>
+                        `;
+                    }).join('');
                 }
 
             } catch (e) {
                 console.error("Fetch failed", e);
-                const el = document.getElementById('health-status');
-                el.textContent = 'OFFLINE';
-                el.style.backgroundColor = 'var(--accent-red)';
+                document.getElementById('status').textContent = 'OFFLINE';
+                document.getElementById('status').className = 'status offline';
             }
         }
 
-        // Initial load
         fetchData();
-        // Poll every 2 seconds for more responsive updates
         setInterval(fetchData, 2000);
     </script>
 </body>
