@@ -7,7 +7,7 @@ export class InventoryStateService {
     private emergencyMode = false;
     private cachedDirection: 'BUY_BTC_ONLY' | 'SELL_BTC_ONLY' | 'BOTH' | 'NONE' = 'NONE';
     private lastCacheTime = 0;
-    private readonly CACHE_TTL_MS = 5000; // Cache for 5 seconds
+    private readonly CACHE_TTL_MS = 10000; // Cache for 10 seconds (increased from 5s)
 
     constructor(
         private nearService: NearService,
@@ -28,16 +28,19 @@ export class InventoryStateService {
             return this.cachedDirection;
         }
 
-        const margin = await this.hyperliquidService.getAvailableMargin();
+        // Parallelize all balance and margin checks
+        const [margin, btcBalanceBN, usdtBalanceBN] = await Promise.all([
+            this.hyperliquidService.getAvailableMargin(),
+            this.nearService.getBalance(BTC_ONLY_CONFIG.BTC_TOKEN_ID),
+            this.nearService.getBalance(BTC_ONLY_CONFIG.USDT_TOKEN_ID)
+        ]);
+
         if (margin < BTC_ONLY_CONFIG.MIN_MARGIN_THRESHOLD) {
             console.warn(`Low Margin: ${margin}. Halting Quotes.`);
             this.cachedDirection = 'NONE';
             this.lastCacheTime = now;
             return 'NONE';
         }
-
-        const btcBalanceBN = await this.nearService.getBalance(BTC_ONLY_CONFIG.BTC_TOKEN_ID);
-        const usdtBalanceBN = await this.nearService.getBalance(BTC_ONLY_CONFIG.USDT_TOKEN_ID);
 
         // Convert to float (assuming 8 decimals for BTC, 6 for USDT)
         const btcBalance = btcBalanceBN.div(1e8).toNumber();

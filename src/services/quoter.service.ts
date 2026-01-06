@@ -30,27 +30,11 @@ export class QuoterService {
                 return undefined; // Not a BTC/USDC pair
             }
 
-            // 2. Check Inventory Direction
-            const direction = await this.inventoryManager.getQuoteDirection();
-
-            // 3. Determine if we are Buying or Selling BTC
+            // 2. Determine if we are Buying or Selling BTC
             // If BTC In -> User is Selling BTC -> We are Buying BTC.
             const weAreBuyingBtc = isBtcIn;
 
-            if (weAreBuyingBtc) {
-                if (direction !== 'BUY_BTC_ONLY' && direction !== 'BOTH') {
-                    console.log("Reject: Inventory does not allow Buying BTC.");
-                    return undefined;
-                }
-            } else {
-                // We are Selling BTC
-                if (direction !== 'SELL_BTC_ONLY' && direction !== 'BOTH') {
-                    console.log("Reject: Inventory does not allow Selling BTC.");
-                    return undefined;
-                }
-            }
-
-            // 4. Calculate Price
+            // 3. Calculate Price
             // Amount In is raw. Need decimals.
             // BTC: 8, USDC: 6.
             const decimalsIn = isBtcIn ? 8 : 6;
@@ -86,14 +70,29 @@ export class QuoterService {
                 return undefined;
             }
 
-            // Position Capacity Check & Funding Rate Check (parallel for speed)
+            // Position Capacity Check, Funding Rate Check & Inventory Direction Check (all in parallel)
             const hedgeDirection = weAreBuyingBtc ? 'short' : 'long';
 
-            // Run checks in parallel when buying BTC
-            const [hasCapacity, fundingRate] = await Promise.all([
+            // Run all checks in parallel for maximum speed
+            const [hasCapacity, fundingRate, direction] = await Promise.all([
                 this.hyperliquidService.checkPositionCapacity(hedgeDirection, btcSize),
-                weAreBuyingBtc ? this.hyperliquidService.getFundingRate() : Promise.resolve(0)
+                weAreBuyingBtc ? this.hyperliquidService.getFundingRate() : Promise.resolve(0),
+                this.inventoryManager.getQuoteDirection()
             ]);
+
+            // Check inventory direction
+            if (weAreBuyingBtc) {
+                if (direction !== 'BUY_BTC_ONLY' && direction !== 'BOTH') {
+                    console.log("Reject: Inventory does not allow Buying BTC.");
+                    return undefined;
+                }
+            } else {
+                // We are Selling BTC
+                if (direction !== 'SELL_BTC_ONLY' && direction !== 'BOTH') {
+                    console.log("Reject: Inventory does not allow Selling BTC.");
+                    return undefined;
+                }
+            }
 
             if (!hasCapacity) {
                 console.warn(`Insufficient Position Capacity for ${hedgeDirection} ${btcSize} BTC`);

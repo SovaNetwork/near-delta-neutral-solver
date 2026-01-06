@@ -54,56 +54,65 @@ export class HedgerService {
                 }
             }
 
-            // Limit checks per poll to avoid rate limits? 
-            // For now, check all.
-            for (const [nonce, data] of this.pendingQuotes.entries()) {
+            // Batch check all nonces in parallel for better performance
+            const noncesArray = Array.from(this.pendingQuotes.entries());
+
+            // Check all nonces in parallel
+            const nonceCheckPromises = noncesArray.map(async ([nonce, data]) => {
                 try {
                     const isUsed = await this.nearService.wasNonceUsed(nonce);
-
-                    if (isUsed) {
-                        console.log(`Settlement Detected for nonce ${nonce}! Executing Hedge...`);
-                        this.pendingQuotes.delete(nonce);
-
-                        if (data) {
-                            try {
-                                const result = await this.hlService.executeHedge(data.direction, data.amountBtc);
-                                console.log(`Hedge Completed for ${nonce}`);
-
-                                // Parse result for price
-                                let execPx = 0;
-                                if (result && result.response && result.response.data && result.response.data.statuses && result.response.data.statuses.length > 0) {
-                                    const status = result.response.data.statuses[0];
-                                    if (typeof status === 'object' && 'filled' in status) {
-                                        execPx = parseFloat(status.filled.avgPx);
-                                    }
-                                }
-
-                                this.logger.logTrade({
-                                    type: 'HEDGE_EXECUTED',
-                                    nonce,
-                                    direction: data.direction,
-                                    amountBtc: data.amountBtc,
-                                    executionPrice: execPx,
-                                    timestamp: new Date().toISOString()
-                                });
-
-                            } catch (hedgeErr) {
-                                console.error(`[ALERT] HIGH PRIORITY: Failed to hedge ${nonce}:`, hedgeErr);
-                                console.error(`[ALERT] Drift Impact: ${data.direction} ${data.amountBtc} BTC unhedged. Manual intervention required.`);
-
-                                this.logger.logTrade({
-                                    type: 'HEDGE_FAILED',
-                                    nonce,
-                                    direction: data.direction,
-                                    amountBtc: data.amountBtc,
-                                    error: String(hedgeErr),
-                                    timestamp: new Date().toISOString()
-                                });
-                            }
-                        }
-                    }
+                    return { nonce, data, isUsed };
                 } catch (e) {
                     console.error(`Error checking nonce ${nonce}:`, e);
+                    return { nonce, data, isUsed: false };
+                }
+            });
+
+            const nonceResults = await Promise.all(nonceCheckPromises);
+
+            // Process all used nonces
+            for (const { nonce, data, isUsed } of nonceResults) {
+                if (isUsed) {
+                    console.log(`Settlement Detected for nonce ${nonce}! Executing Hedge...`);
+                    this.pendingQuotes.delete(nonce);
+
+                    if (data) {
+                        try {
+                            const result = await this.hlService.executeHedge(data.direction, data.amountBtc);
+                            console.log(`Hedge Completed for ${nonce}`);
+
+                            // Parse result for price
+                            let execPx = 0;
+                            if (result && result.response && result.response.data && result.response.data.statuses && result.response.data.statuses.length > 0) {
+                                const status = result.response.data.statuses[0];
+                                if (typeof status === 'object' && 'filled' in status) {
+                                    execPx = parseFloat(status.filled.avgPx);
+                                }
+                            }
+
+                            this.logger.logTrade({
+                                type: 'HEDGE_EXECUTED',
+                                nonce,
+                                direction: data.direction,
+                                amountBtc: data.amountBtc,
+                                executionPrice: execPx,
+                                timestamp: new Date().toISOString()
+                            });
+
+                        } catch (hedgeErr) {
+                            console.error(`[ALERT] HIGH PRIORITY: Failed to hedge ${nonce}:`, hedgeErr);
+                            console.error(`[ALERT] Drift Impact: ${data.direction} ${data.amountBtc} BTC unhedged. Manual intervention required.`);
+
+                            this.logger.logTrade({
+                                type: 'HEDGE_FAILED',
+                                nonce,
+                                direction: data.direction,
+                                amountBtc: data.amountBtc,
+                                error: String(hedgeErr),
+                                timestamp: new Date().toISOString()
+                            });
+                        }
+                    }
                 }
             }
 
