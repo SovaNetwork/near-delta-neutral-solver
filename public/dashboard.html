@@ -221,6 +221,110 @@
             align-items: center;
             gap: 6px;
         }
+
+        /* Quote groups */
+        .quote-group {
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            margin-bottom: 12px;
+            overflow: hidden;
+        }
+
+        .quote-group.highlight {
+            border-color: var(--accent-blue);
+            box-shadow: 0 0 0 1px var(--accent-blue);
+        }
+
+        .quote-group-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 12px;
+            background: rgba(88, 166, 255, 0.1);
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .quote-group-header .quote-id {
+            font-family: monospace;
+            font-weight: bold;
+            color: var(--accent-blue);
+        }
+
+        .quote-group-header .quote-summary {
+            font-size: 0.85em;
+            color: var(--text-secondary);
+        }
+
+        .quote-group-events {
+            padding: 0;
+        }
+
+        .quote-event {
+            display: grid;
+            grid-template-columns: 70px 90px 1fr auto;
+            gap: 12px;
+            padding: 8px 12px;
+            align-items: center;
+            font-size: 0.85em;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .quote-event:last-child {
+            border-bottom: none;
+        }
+
+        .quote-event.latest {
+            background: rgba(35, 134, 54, 0.1);
+        }
+
+        /* Latest quote card */
+        .latest-quote {
+            background: linear-gradient(135deg, rgba(88, 166, 255, 0.1), rgba(137, 87, 229, 0.1));
+            border: 1px solid var(--accent-blue);
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 16px;
+        }
+
+        .latest-quote-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .latest-quote-id {
+            font-family: monospace;
+            font-size: 1.2em;
+            font-weight: bold;
+            color: var(--accent-blue);
+        }
+
+        .latest-quote-flow {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .flow-step {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .flow-arrow {
+            color: var(--text-secondary);
+            font-size: 1.2em;
+        }
+
+        .flow-step.completed .badge {
+            opacity: 0.6;
+        }
+
+        .flow-step.current .badge {
+            box-shadow: 0 0 8px currentColor;
+        }
     </style>
 </head>
 <body>
@@ -277,15 +381,26 @@
             </div>
         </div>
 
+        <!-- Latest Quote Status -->
+        <div class="latest-quote" id="latest-quote" style="display: none;">
+            <div class="latest-quote-header">
+                <div>
+                    <span style="color: var(--text-secondary); font-size: 0.8em; text-transform: uppercase;">Latest Quote</span>
+                    <span class="latest-quote-id" id="latest-quote-id">-</span>
+                </div>
+                <div id="latest-quote-summary" style="text-align: right; font-size: 0.9em;"></div>
+            </div>
+            <div class="latest-quote-flow" id="latest-quote-flow"></div>
+        </div>
+
         <div class="card">
-            <h2>Activity Feed</h2>
+            <h2>Quote History (grouped by ID)</h2>
             <div class="legend">
                 <div class="legend-item"><span class="badge badge-PUBLISHED">Published</span> Quote accepted</div>
-                <div class="legend-item"><span class="badge badge-REJECTED">Rejected</span> Another solver won</div>
+                <div class="legend-item"><span class="badge badge-REJECTED">Rejected</span> Lost to other solver</div>
                 <div class="legend-item"><span class="badge badge-SETTLED">Settled</span> User took quote</div>
                 <div class="legend-item"><span class="badge badge-HEDGED">Hedged</span> Position hedged</div>
                 <div class="legend-item"><span class="badge badge-EXPIRED">Expired</span> No settlement</div>
-                <div class="legend-item"><span class="badge badge-FAILED">Failed</span> Hedge failed</div>
             </div>
             <div class="activity-feed" id="activity-feed">
                 <div style="color: var(--text-secondary); padding: 20px; text-align: center;">Loading...</div>
@@ -321,22 +436,193 @@
             return '';
         }
 
-        function formatDetails(trade) {
-            const parts = [];
+        // Group trades by nonce
+        function groupByNonce(trades) {
+            const groups = new Map();
 
-            if (trade.amountBtc) {
-                parts.push(`${trade.amountBtc.toFixed(6)} BTC`);
+            for (const trade of trades) {
+                const nonce = trade.nonce || 'unknown';
+                if (!groups.has(nonce)) {
+                    groups.set(nonce, {
+                        nonce,
+                        shortId: nonce.substring(0, 8),
+                        events: [],
+                        direction: trade.direction,
+                        amountBtc: trade.amountBtc,
+                        firstTime: trade.timestamp,
+                        lastTime: trade.timestamp,
+                        finalState: null
+                    });
+                }
+
+                const group = groups.get(nonce);
+                group.events.push(trade);
+                group.lastTime = trade.timestamp;
+
+                // Track the final/current state
+                const eventType = formatEventType(trade.type);
+                if (['REJECTED', 'HEDGED', 'EXPIRED', 'FAILED'].includes(eventType)) {
+                    group.finalState = eventType;
+                } else if (!group.finalState) {
+                    group.finalState = eventType;
+                }
             }
 
-            if (trade.reason === 'solver_lost') {
-                parts.push('(solver lost)');
-            } else if (trade.error) {
-                parts.push(`Error: ${trade.error.substring(0, 30)}...`);
-            } else if (trade.executionPrice) {
-                parts.push(`@ $${trade.executionPrice.toFixed(2)}`);
+            return Array.from(groups.values()).sort((a, b) =>
+                new Date(b.lastTime) - new Date(a.lastTime)
+            );
+        }
+
+        // Get the lifecycle flow for a quote
+        function getQuoteFlow(events) {
+            const flow = [];
+            const seen = new Set();
+
+            for (const e of events) {
+                const type = formatEventType(e.type);
+                if (!seen.has(type)) {
+                    seen.add(type);
+                    flow.push({ type, time: e.timestamp, data: e });
+                }
             }
 
-            return parts.join(' ');
+            return flow;
+        }
+
+        // Render the latest quote card
+        function renderLatestQuote(group) {
+            const container = document.getElementById('latest-quote');
+            const idEl = document.getElementById('latest-quote-id');
+            const summaryEl = document.getElementById('latest-quote-summary');
+            const flowEl = document.getElementById('latest-quote-flow');
+
+            if (!group) {
+                container.style.display = 'none';
+                return;
+            }
+
+            container.style.display = 'block';
+            idEl.textContent = group.shortId;
+
+            // Summary
+            const dir = group.direction ? `<span class="badge badge-${group.direction}">${group.direction}</span>` : '';
+            const amt = group.amountBtc ? `${group.amountBtc.toFixed(6)} BTC` : '';
+            summaryEl.innerHTML = `${dir} ${amt}`;
+
+            // Flow visualization
+            const flow = getQuoteFlow(group.events);
+            const allSteps = ['PUBLISHED', 'SETTLED', 'HEDGED'];
+            const rejectedFlow = ['REJECTED'];
+
+            // Determine which flow to show
+            const hasRejected = flow.some(f => f.type === 'REJECTED');
+            const stepsToShow = hasRejected ? rejectedFlow : allSteps;
+
+            let flowHtml = '';
+            for (let i = 0; i < stepsToShow.length; i++) {
+                const step = stepsToShow[i];
+                const flowItem = flow.find(f => f.type === step);
+                const isCompleted = !!flowItem;
+                const isCurrent = isCompleted && i === flow.length - 1;
+
+                if (i > 0) {
+                    flowHtml += `<span class="flow-arrow">→</span>`;
+                }
+
+                const stepClass = isCurrent ? 'current' : (isCompleted ? 'completed' : '');
+                const opacity = isCompleted ? '' : 'opacity: 0.3;';
+
+                flowHtml += `
+                    <div class="flow-step ${stepClass}">
+                        <span class="badge badge-${step}" style="${opacity}">${step}</span>
+                        ${flowItem && flowItem.data.timings ? `<span class="activity-timing">${flowItem.data.timings.total}ms</span>` : ''}
+                    </div>
+                `;
+            }
+
+            flowEl.innerHTML = flowHtml;
+        }
+
+        // Render grouped quotes
+        function renderQuoteGroups(groups) {
+            const feed = document.getElementById('activity-feed');
+
+            if (groups.length === 0) {
+                feed.innerHTML = '<div style="color: var(--text-secondary); padding: 20px; text-align: center;">No activity yet</div>';
+                return;
+            }
+
+            let html = '';
+
+            for (let i = 0; i < groups.length; i++) {
+                const group = groups[i];
+                const isLatest = i === 0;
+                const flow = getQuoteFlow(group.events);
+
+                // Determine outcome color
+                let outcomeClass = '';
+                let outcomeText = '';
+                if (group.finalState === 'REJECTED') {
+                    outcomeClass = 'status-error';
+                    outcomeText = 'Lost';
+                } else if (group.finalState === 'HEDGED') {
+                    outcomeClass = 'status-ok';
+                    outcomeText = 'Won + Hedged';
+                } else if (group.finalState === 'EXPIRED') {
+                    outcomeClass = 'status-warn';
+                    outcomeText = 'Expired';
+                } else if (group.finalState === 'PUBLISHED') {
+                    outcomeClass = 'status-ok';
+                    outcomeText = 'Awaiting...';
+                }
+
+                html += `
+                    <div class="quote-group ${isLatest ? 'highlight' : ''}">
+                        <div class="quote-group-header">
+                            <div>
+                                <span class="quote-id">${group.shortId}</span>
+                                ${group.direction ? `<span class="badge badge-${group.direction}" style="margin-left: 8px;">${group.direction}</span>` : ''}
+                                <span style="color: var(--text-secondary); margin-left: 8px;">${group.amountBtc ? group.amountBtc.toFixed(6) + ' BTC' : ''}</span>
+                            </div>
+                            <div class="quote-summary">
+                                <span class="${outcomeClass}">${outcomeText}</span>
+                            </div>
+                        </div>
+                        <div class="quote-group-events">
+                `;
+
+                // Show events in chronological order within the group
+                const sortedEvents = [...group.events].sort((a, b) =>
+                    new Date(a.timestamp) - new Date(b.timestamp)
+                );
+
+                for (const e of sortedEvents) {
+                    const eventType = formatEventType(e.type);
+                    const time = new Date(e.timestamp).toLocaleTimeString();
+                    const timing = formatTiming(e);
+
+                    let detail = '';
+                    if (e.reason === 'solver_lost') detail = 'Another solver won';
+                    else if (e.executionPrice) detail = `@ $${e.executionPrice.toFixed(2)}`;
+                    else if (e.error) detail = e.error.substring(0, 40);
+
+                    html += `
+                        <div class="quote-event">
+                            <span class="activity-time">${time}</span>
+                            <span class="badge badge-${eventType}">${eventType}</span>
+                            <span style="color: var(--text-secondary);">${detail}</span>
+                            <span class="activity-timing">${timing}</span>
+                        </div>
+                    `;
+                }
+
+                html += `
+                        </div>
+                    </div>
+                `;
+            }
+
+            feed.innerHTML = html;
         }
 
         async function fetchData() {
@@ -411,34 +697,17 @@
                     }
                 }
 
-                // 5. Activity Feed
-                const tradesRes = await fetch('/api/trades?limit=50');
+                // 5. Activity Feed - now grouped
+                const tradesRes = await fetch('/api/trades?limit=100');
                 if (tradesRes.ok) {
                     const trades = await tradesRes.json();
-                    const feed = document.getElementById('activity-feed');
+                    const groups = groupByNonce(trades);
 
-                    if (trades.length === 0) {
-                        feed.innerHTML = '<div style="color: var(--text-secondary); padding: 20px; text-align: center;">No activity yet</div>';
-                    } else {
-                        feed.innerHTML = trades.reverse().map(t => {
-                            const eventType = formatEventType(t.type);
-                            const time = new Date(t.timestamp).toLocaleTimeString();
-                            const shortNonce = t.nonce ? t.nonce.substring(0, 8) : '-';
-                            const direction = t.direction ? `<span class="badge badge-${t.direction}">${t.direction}</span>` : '';
-                            const details = formatDetails(t);
-                            const timing = formatTiming(t);
+                    // Render latest quote card
+                    renderLatestQuote(groups[0]);
 
-                            return `
-                                <div class="activity-item">
-                                    <span class="activity-time">${time}</span>
-                                    <span class="badge badge-${eventType}">${eventType}</span>
-                                    <span class="activity-id">${shortNonce}</span>
-                                    <span class="activity-details">${direction} ${details}</span>
-                                    <span class="activity-timing">${timing}</span>
-                                </div>
-                            `;
-                        }).join('');
-                    }
+                    // Render grouped history (limit to 20 groups)
+                    renderQuoteGroups(groups.slice(0, 20));
                 }
 
             } catch (e) {
@@ -451,8 +720,8 @@
 
         // Initial load
         fetchData();
-        // Poll every 3 seconds
-        setInterval(fetchData, 3000);
+        // Poll every 2 seconds for more responsive updates
+        setInterval(fetchData, 2000);
     </script>
 </body>
 </html>
