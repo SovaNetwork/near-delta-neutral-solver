@@ -1,6 +1,6 @@
 export const NEAR_CONFIG = {
     networkId: process.env.NEAR_NETWORK_ID || 'mainnet',
-    nodeUrl: process.env.NEAR_RPC_URL || 'https://rpc.mainnet.near.org',
+    nodeUrl: process.env.NEAR_RPC_URL || 'https://rpc.fastnear.com',
     walletUrl: 'https://wallet.near.org',
     helperUrl: 'https://helper.mainnet.near.org',
     explorerUrl: 'https://explorer.near.org',
