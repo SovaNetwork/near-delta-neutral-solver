@@ -23,11 +23,13 @@ export class HyperliquidService {
     private coin: string = 'BTC';
     private assetIndex: number = -1;
 
-    private marginCache: { margin: number, timestamp: number } | null = null;
-    private positionCache: { position: number, timestamp: number } | null = null;
+    private marginCache: { margin: number, timestamp: number, refreshing?: boolean } | null = null;
+    private positionCache: { position: number, timestamp: number, refreshing?: boolean } | null = null;
     private fundingRateCache: { rate: number, timestamp: number } | null = null;
-    private readonly CACHE_TTL_MS = 5000; // 5 second cache
-    private readonly POSITION_CACHE_TTL_MS = 2000; // 2 second cache for positions (hot path)
+    private readonly CACHE_TTL_MS = 10000; // 10 second cache (increased from 5s)
+    private readonly CACHE_REFRESH_THRESHOLD_MS = 7000; // Start background refresh after 7s
+    private readonly POSITION_CACHE_TTL_MS = 10000; // 10 second cache (increased from 2s)
+    private readonly POSITION_REFRESH_THRESHOLD_MS = 7000; // Start background refresh after 7s
     private readonly FUNDING_CACHE_TTL_MS = 30000; // 30 second cache for funding rate
 
     constructor() {
@@ -144,10 +146,22 @@ export class HyperliquidService {
     async getAvailableMargin(): Promise<number> {
         if (!this.wallet) return 0;
 
-        // Check cache first
+        // Check cache first (stale-while-revalidate pattern)
         const now = Date.now();
-        if (this.marginCache && (now - this.marginCache.timestamp) < this.CACHE_TTL_MS) {
-            return this.marginCache.margin;
+        if (this.marginCache) {
+            const age = now - this.marginCache.timestamp;
+
+            // If cache is fresh, return immediately
+            if (age < this.CACHE_TTL_MS) {
+                // Trigger background refresh if approaching expiry
+                if (age > this.CACHE_REFRESH_THRESHOLD_MS && !this.marginCache.refreshing) {
+                    this.marginCache.refreshing = true;
+                    this.refreshMarginInBackground().catch(e =>
+                        console.warn(`Background margin refresh failed:`, e)
+                    );
+                }
+                return this.marginCache.margin;
+            }
         }
 
         console.log(`[Hyperliquid] Checking Margin for Derived Address: ${this.wallet.address}`);
@@ -161,7 +175,7 @@ export class HyperliquidService {
             const availableMargin = accountValue - totalMarginUsed;
 
             // Cache the result
-            this.marginCache = { margin: availableMargin, timestamp: now };
+            this.marginCache = { margin: availableMargin, timestamp: now, refreshing: false };
 
             return availableMargin;
         } catch (e) {
@@ -170,13 +184,45 @@ export class HyperliquidService {
         }
     }
 
+    private async refreshMarginInBackground(): Promise<void> {
+        if (!this.wallet) return;
+
+        try {
+            const userState = await this.infoClient.clearinghouseState({ user: this.wallet.address });
+            const marginSummary = userState.marginSummary;
+
+            const accountValue = parseFloat(marginSummary.accountValue);
+            const totalMarginUsed = parseFloat(marginSummary.totalMarginUsed);
+            const availableMargin = accountValue - totalMarginUsed;
+
+            this.marginCache = { margin: availableMargin, timestamp: Date.now(), refreshing: false };
+        } catch (e) {
+            if (this.marginCache) {
+                this.marginCache.refreshing = false;
+            }
+            throw e;
+        }
+    }
+
     async getBtcPosition(): Promise<number> {
         if (!this.wallet) return 0;
 
-        // Check cache first (hot path optimization)
+        // Check cache first (stale-while-revalidate pattern)
         const now = Date.now();
-        if (this.positionCache && (now - this.positionCache.timestamp) < this.POSITION_CACHE_TTL_MS) {
-            return this.positionCache.position;
+        if (this.positionCache) {
+            const age = now - this.positionCache.timestamp;
+
+            // If cache is fresh, return immediately
+            if (age < this.POSITION_CACHE_TTL_MS) {
+                // Trigger background refresh if approaching expiry
+                if (age > this.POSITION_REFRESH_THRESHOLD_MS && !this.positionCache.refreshing) {
+                    this.positionCache.refreshing = true;
+                    this.refreshPositionInBackground().catch(e =>
+                        console.warn(`Background position refresh failed:`, e)
+                    );
+                }
+                return this.positionCache.position;
+            }
         }
 
         const userState = await this.infoClient.clearinghouseState({ user: this.wallet.address });
@@ -185,8 +231,26 @@ export class HyperliquidService {
         const position = btcPos ? parseFloat(btcPos.position.szi) : 0;
 
         // Cache the result
-        this.positionCache = { position, timestamp: now };
+        this.positionCache = { position, timestamp: now, refreshing: false };
         return position;
+    }
+
+    private async refreshPositionInBackground(): Promise<void> {
+        if (!this.wallet) return;
+
+        try {
+            const userState = await this.infoClient.clearinghouseState({ user: this.wallet.address });
+            const positions = userState.assetPositions;
+            const btcPos = positions.find((p: any) => p.position.coin === this.coin);
+            const position = btcPos ? parseFloat(btcPos.position.szi) : 0;
+
+            this.positionCache = { position, timestamp: Date.now(), refreshing: false };
+        } catch (e) {
+            if (this.positionCache) {
+                this.positionCache.refreshing = false;
+            }
+            throw e;
+        }
     }
 
     async getFundingRate(): Promise<number> {

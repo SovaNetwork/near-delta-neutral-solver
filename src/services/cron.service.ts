@@ -27,14 +27,16 @@ export class CronService {
             console.log("Running Drift Check...");
             // Spot Balance (Long) vs Perp Position (Short)
 
-            const spotBtcBN = await this.nearService.getBalance(BTC_ONLY_CONFIG.BTC_TOKEN_ID);
-            const spotUsdtBN = await this.nearService.getBalance(BTC_ONLY_CONFIG.USDT_TOKEN_ID);
+            // Parallelize all balance and position checks
+            const [spotBtcBN, spotUsdtBN, perpPos, availableMargin] = await Promise.all([
+                this.nearService.getBalance(BTC_ONLY_CONFIG.BTC_TOKEN_ID),
+                this.nearService.getBalance(BTC_ONLY_CONFIG.USDT_TOKEN_ID),
+                this.hlService.getBtcPosition(),
+                this.hlService.getAvailableMargin()
+            ]);
 
             const spotBtc = spotBtcBN.div(1e8).toNumber();
             const spotUsdt = spotUsdtBN.div(1e6).toNumber();
-
-            const perpPos = await this.hlService.getBtcPosition();
-            const availableMargin = await this.hlService.getAvailableMargin();
             const netDelta = spotBtc + perpPos;
 
             console.log(`[Drift Check]Spot: ${spotBtc}, Perp: ${perpPos}, Net Delta: ${netDelta} `);
