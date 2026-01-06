@@ -299,26 +299,47 @@ async function connectToBusWithRetry(
                     });
 
                     ws.send(JSON.stringify(quoteRequest));
-                    await responsePromise;
-                    const t6 = performance.now();
 
-                    const timings = {
-                        parse: (t1 - t0).toFixed(2),
-                        validate: (t2 - t1).toFixed(2),
-                        getQuote: (t3 - t2).toFixed(2),
-                        sign: (t5 - t4).toFixed(2),
-                        post: (t6 - t5).toFixed(2),
-                        total: (t6 - t0).toFixed(2)
-                    };
-                    console.log(`✅ Quote Published | ${isBuyingBtc ? 'BUY' : 'SELL'} ${amountInFloat.toFixed(6)} → ${amountOutFloat.toFixed(6)} | ⏱️ ${timings.total}ms (quote:${timings.getQuote}ms sign:${timings.sign}ms post:${timings.post}ms)`);
+                    try {
+                        await responsePromise;
+                        const t6 = performance.now();
 
-                    logger.logTrade({
-                        type: 'QUOTE_PUBLISHED',
-                        nonce,
-                        direction: isBuyingBtc ? 'buy' : 'sell',
-                        amountBtc: amountBtcForHedge,
-                        quotedPrice: 0
-                    });
+                        const timings = {
+                            parse: (t1 - t0).toFixed(2),
+                            validate: (t2 - t1).toFixed(2),
+                            getQuote: (t3 - t2).toFixed(2),
+                            sign: (t5 - t4).toFixed(2),
+                            post: (t6 - t5).toFixed(2),
+                            total: (t6 - t0).toFixed(2)
+                        };
+                        console.log(`✅ Quote Published | ${isBuyingBtc ? 'BUY' : 'SELL'} ${amountInFloat.toFixed(6)} → ${amountOutFloat.toFixed(6)} | ⏱️ ${timings.total}ms (quote:${timings.getQuote}ms sign:${timings.sign}ms post:${timings.post}ms)`);
+
+                        logger.logTrade({
+                            type: 'QUOTE_PUBLISHED',
+                            nonce,
+                            direction: isBuyingBtc ? 'buy' : 'sell',
+                            amountBtc: amountBtcForHedge,
+                            quotedPrice: 0
+                        });
+                    } catch (relayErr: any) {
+                        const t6 = performance.now();
+                        const timings = {
+                            parse: (t1 - t0).toFixed(2),
+                            validate: (t2 - t1).toFixed(2),
+                            getQuote: (t3 - t2).toFixed(2),
+                            sign: (t5 - t4).toFixed(2),
+                            post: (t6 - t5).toFixed(2),
+                            total: (t6 - t0).toFixed(2)
+                        };
+
+                        // Check if this is "another solver won" error
+                        const errorMessage = relayErr?.message || String(relayErr);
+                        if (errorMessage.includes('-32098') || errorMessage.includes('not found or already finished')) {
+                            console.log(`⏱️  Quote too late (other solver won) | ${isBuyingBtc ? 'BUY' : 'SELL'} ${amountInFloat.toFixed(6)} → ${amountOutFloat.toFixed(6)} | ⏱️ ${timings.total}ms (quote:${timings.getQuote}ms sign:${timings.sign}ms post:${timings.post}ms)`);
+                        } else {
+                            console.error("Failed to publish quote:", relayErr);
+                        }
+                    }
 
                 } catch (postErr) {
                     console.error("Failed to publish quote:", postErr);
