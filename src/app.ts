@@ -12,11 +12,23 @@ import axios from 'axios';
 import * as dotenv from 'dotenv';
 import { randomBytes } from 'crypto';
 import { performance } from 'perf_hooks';
+import * as http from 'http';
+import * as https from 'https';
 
 dotenv.config();
 
 const SOLVER_BUS_WS = process.env.SOLVER_BUS_WS_URL || 'wss://solver-relay-v2.chaindefuser.com/ws';
 const SOLVER_BUS_RPC = process.env.SOLVER_BUS_RPC_URL || 'https://solver-relay-v2.chaindefuser.com/rpc';
+
+// Create axios instance with HTTP keep-alive for connection reuse
+const axiosInstance = axios.create({
+    httpAgent: new http.Agent({ keepAlive: true, keepAliveMsecs: 30000 }),
+    httpsAgent: new https.Agent({ keepAlive: true, keepAliveMsecs: 30000 }),
+    timeout: 10000,
+    headers: {
+        'Connection': 'keep-alive'
+    }
+});
 
 // Global retry state for simplicity
 let reconnectAttempts = 0;
@@ -61,6 +73,20 @@ async function main() {
     hedgerService.start();
     cronService.start();
     apiService.start();
+
+    // Pre-warm caches to make first quotes fast
+    console.log("Pre-warming caches...");
+    try {
+        await Promise.all([
+            inventoryManager.getQuoteDirection(),
+            hlService.getAvailableMargin(),
+            hlService.getBtcPosition(),
+            hlService.getFundingRate()
+        ]);
+        console.log("Caches pre-warmed successfully.");
+    } catch (e) {
+        console.warn("Cache pre-warming failed (non-critical):", e);
+    }
 
     const ctx: SolverContext = { ws: null };
 
@@ -201,7 +227,7 @@ async function connectToBusWithRetry(
 
                 // Publish
                 try {
-                    await axios.post(SOLVER_BUS_RPC, {
+                    await axiosInstance.post(SOLVER_BUS_RPC, {
                         jsonrpc: "2.0",
                         id: Date.now(),
                         method: 'submit_quote',
