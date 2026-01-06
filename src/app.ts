@@ -165,8 +165,8 @@ async function connectToBusWithRetry(
                 const amountOutFloat = parseFloat(quote.amount_out) / (isBuyingBtc ? 1e6 : 1e8);
                 console.log(`📊 Quote: ${isBuyingBtc ? 'BUY BTC' : 'SELL BTC'} | In: ${amountInFloat.toFixed(6)} ${isBuyingBtc ? 'BTC' : 'USDT'} → Out: ${amountOutFloat.toFixed(6)} ${isBuyingBtc ? 'USDT' : 'BTC'}`);
 
-                // Generate Nonce (Mocking intent expectation)
-                const nonce = '0x' + randomBytes(32).toString('hex');
+                // Generate Nonce - use base64 format for NEAR
+                const nonce = randomBytes(32).toString('base64');
 
                 let amountBtcForHedge = 0;
                 if (isBuyingBtc) {
