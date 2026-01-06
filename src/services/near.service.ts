@@ -103,6 +103,10 @@ export class NearService {
     }
 
     async wasNonceUsed(nonce: string): Promise<boolean> {
-        return this.viewContract(NEAR_CONFIG.INTENTS_CONTRACT_ID, 'is_nonce_used', { nonce });
+        if (!this.account) return false;
+        return this.viewContract(NEAR_CONFIG.INTENTS_CONTRACT_ID, 'is_nonce_used', {
+            account_id: this.account.accountId,
+            nonce
+        });
     }
 }
