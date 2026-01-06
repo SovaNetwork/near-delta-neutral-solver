@@ -54,8 +54,21 @@ export class HyperliquidService {
     }
 
     async init() {
-        // 1. Fetch Meta
-        const meta = await this.infoClient.meta();
+        // 1. Fetch Meta with retry logic
+        let retries = 3;
+        let meta: any;
+        while (retries > 0) {
+            try {
+                meta = await this.infoClient.meta();
+                break;
+            } catch (e: any) {
+                retries--;
+                if (retries === 0) throw e;
+                console.warn(`Hyperliquid API error, retrying... (${retries} left)`);
+                await new Promise(r => setTimeout(r, 2000));
+            }
+        }
+
         const runiverse = meta.universe;
         for (let i = 0; i < runiverse.length; i++) {
             const assetParam = runiverse[i];
