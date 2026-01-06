@@ -235,9 +235,9 @@ async function connectToBusWithRetry(
                 const signature = await nearService.sign(messageToSign);
                 const t5 = performance.now();
 
-                // Publish
+                // Publish via WebSocket (much faster than HTTP POST)
                 try {
-                    await axiosInstance.post(SOLVER_BUS_RPC, {
+                    ws.send(JSON.stringify({
                         jsonrpc: "2.0",
                         id: Date.now(),
                         method: 'submit_quote',
@@ -246,7 +246,7 @@ async function connectToBusWithRetry(
                             nonce: nonce,
                             signature: signature
                         }
-                    });
+                    }));
                     const t6 = performance.now();
 
                     const timings = {

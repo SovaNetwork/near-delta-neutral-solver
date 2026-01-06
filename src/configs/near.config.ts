@@ -1,6 +1,7 @@
 export const NEAR_CONFIG = {
     networkId: process.env.NEAR_NETWORK_ID || 'mainnet',
-    nodeUrl: process.env.NEAR_RPC_URL || 'https://rpc.fastnear.com',
+    // Use free tier + fallback to avoid rate limits (same as AMM solver)
+    nodeUrl: process.env.NEAR_RPC_URL || 'https://1rpc.io/near',
     walletUrl: 'https://wallet.near.org',
     helperUrl: 'https://helper.mainnet.near.org',
     explorerUrl: 'https://explorer.near.org',

@@ -5,6 +5,7 @@ import BigNumber from 'bignumber.js';
 export class NearService {
     private near: Near | undefined;
     private account: Account | undefined;
+    private keyPair: any; // Cache the key pair for faster signing
     private balanceCache: Map<string, { balance: BigNumber, timestamp: number, refreshing?: boolean }> = new Map();
     private readonly CACHE_TTL_MS = 30000; // 30 second cache (increased for quote competitiveness)
     private readonly CACHE_REFRESH_THRESHOLD_MS = 20000; // Start background refresh after 20s
@@ -28,6 +29,11 @@ export class NearService {
         });
 
         this.account = await this.near.account(NEAR_CONFIG.SOLVER_ID);
+
+        // Pre-load the key pair for faster signing
+        const signerKeyStore = (this.near.connection.signer as any).keyStore;
+        this.keyPair = await signerKeyStore.getKey(NEAR_CONFIG.networkId, NEAR_CONFIG.SOLVER_ID);
+
         console.log(`NearService initialized for ${NEAR_CONFIG.SOLVER_ID}`);
     }
 
@@ -130,13 +136,10 @@ export class NearService {
     }
 
     async sign(message: string): Promise<string> {
-        if (!this.near) throw new Error("NearService not initialized");
-        const keyStore = (this.near.connection.signer as any).keyStore;
-        const keyPair = await keyStore.getKey(NEAR_CONFIG.networkId, NEAR_CONFIG.SOLVER_ID);
-        if (!keyPair) throw new Error("No private key found for signing");
+        if (!this.keyPair) throw new Error("NearService not initialized or key not loaded");
 
         const msgBuffer = Buffer.from(message);
-        const signature = keyPair.sign(msgBuffer);
+        const signature = this.keyPair.sign(msgBuffer);
         return Buffer.from(signature.signature).toString('hex');
     }
 
