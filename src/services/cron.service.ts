@@ -54,6 +54,22 @@ export class CronService {
                 console.log("[Drift Check] Delta is balanced.");
             }
 
+            // Readiness Check
+            const canBuy = spotUsdt > BTC_ONLY_CONFIG.MIN_USDT_RESERVE;
+            const canSell = spotBtc > BTC_ONLY_CONFIG.MIN_TRADE_SIZE_BTC;
+            const canHedge = availableMargin > BTC_ONLY_CONFIG.MIN_MARGIN_THRESHOLD;
+
+            if (!canHedge) {
+                console.warn(`[Status] IDLE - Low Hyperliquid Margin (${availableMargin} < ${BTC_ONLY_CONFIG.MIN_MARGIN_THRESHOLD}).`);
+            } else if (!canBuy && !canSell) {
+                console.warn(`[Status] IDLE - Low Inventory (Spot USDT: ${spotUsdt}, Spot BTC: ${spotBtc}).`);
+            } else {
+                const modes = [];
+                if (canBuy) modes.push("BUYING");
+                if (canSell) modes.push("SELLING");
+                console.log(`[Status] READY - Quoting Active (${modes.join(', ')}).`);
+            }
+
         } catch (e) {
             console.error("Drift Check Failed:", e);
         }
