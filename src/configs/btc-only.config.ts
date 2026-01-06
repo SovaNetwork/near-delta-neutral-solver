@@ -6,7 +6,7 @@ export const BTC_ONLY_CONFIG = {
     // 1. wBTC (Eth): eth-0x2260fac5e5542a773aa44fbcfedf7c193bc2c599.omft.near
     // 2. cbBTC (Base): base-0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf.omft.near
     // 3. BTC (Spot): btc.omft.near
-    BTC_TOKEN_ID: process.env.BTC_TOKEN_ID || 'eth-0x2260fac5e5542a773aa44fbcfedf7c193bc2c599.omft.near',
+    BTC_TOKEN_ID: process.env.BTC_TOKEN_ID || 'base-0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf.omft.near',
 
     // eth-0xdac... (Bridged USDT from ETH)
     USDT_TOKEN_ID: process.env.USDT_TOKEN_ID || 'eth-0xdac17f958d2ee523a2206206994597c13d831ec7.omft.near',
