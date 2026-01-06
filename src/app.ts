@@ -234,6 +234,7 @@ async function connectToBusWithRetry(
                 const nonce = generateRandomNonce();
                 const recipient = NEAR_CONFIG.INTENTS_CONTRACT_ID;
 
+                // Calculate hedge amount
                 let amountBtcForHedge = 0;
                 if (isBuyingBtc) {
                     amountBtcForHedge = amountInFloat;
@@ -241,6 +242,7 @@ async function connectToBusWithRetry(
                     amountBtcForHedge = parseFloat(quote.amount_out) / 1e8;
                 }
 
+                // Track quote for potential settlement (must happen before send)
                 hedgerService.trackQuote(nonce, {
                     direction: isBuyingBtc ? 'short' : 'long',
                     amountBtc: amountBtcForHedge,
