@@ -11,6 +11,7 @@ import WebSocket from 'ws';
 import axios from 'axios';
 import * as dotenv from 'dotenv';
 import { randomBytes } from 'crypto';
+import { performance } from 'perf_hooks';
 
 dotenv.config();
 
@@ -123,6 +124,7 @@ async function connectToBusWithRetry(
     });
 
     ws.on('message', async (data: string) => {
+        const t0 = performance.now();
         try {
             const msg = JSON.parse(data.toString());
 
@@ -135,6 +137,8 @@ async function connectToBusWithRetry(
             // Parse quote request: { method: "event", params: { subscription, data: { quote_id, ... } } }
             const quoteData = msg.params?.data;
             if (!quoteData || !quoteData.quote_id) return;
+
+            const t1 = performance.now();
 
             // Strip nep141: prefix from token IDs
             const stripPrefix = (tokenId: string) => tokenId.replace(/^nep\d+:/, '');
@@ -154,16 +158,16 @@ async function connectToBusWithRetry(
                 return;
             }
 
-            console.log(`📨 Quote: ${req.token_in.substring(0, 20)}... → ${req.token_out.substring(0, 20)}...`);
+            const t2 = performance.now();
 
             const quote = await quoterService.getQuote(req);
+            const t3 = performance.now();
 
             if (quote) {
                 const isBuyingBtc = req.token_in === BTC_ONLY_CONFIG.BTC_TOKEN_ID;
                 const decimals = isBuyingBtc ? 8 : 6;
                 const amountInFloat = parseFloat(req.amount_in) / Math.pow(10, decimals);
                 const amountOutFloat = parseFloat(quote.amount_out) / (isBuyingBtc ? 1e6 : 1e8);
-                console.log(`📊 Quote: ${isBuyingBtc ? 'BUY BTC' : 'SELL BTC'} | In: ${amountInFloat.toFixed(6)} ${isBuyingBtc ? 'BTC' : 'USDT'} → Out: ${amountOutFloat.toFixed(6)} ${isBuyingBtc ? 'USDT' : 'BTC'}`);
 
                 // Generate Nonce - use base64 format for NEAR
                 const nonce = randomBytes(32).toString('base64');
@@ -191,7 +195,9 @@ async function connectToBusWithRetry(
                     return;
                 }
 
+                const t4 = performance.now();
                 const signature = await nearService.sign(messageToSign);
+                const t5 = performance.now();
 
                 // Publish
                 try {
@@ -205,7 +211,17 @@ async function connectToBusWithRetry(
                             signature: signature
                         }
                     });
-                    console.log(`✅ Quote Published`);
+                    const t6 = performance.now();
+
+                    const timings = {
+                        parse: (t1 - t0).toFixed(2),
+                        validate: (t2 - t1).toFixed(2),
+                        getQuote: (t3 - t2).toFixed(2),
+                        sign: (t5 - t4).toFixed(2),
+                        post: (t6 - t5).toFixed(2),
+                        total: (t6 - t0).toFixed(2)
+                    };
+                    console.log(`✅ Quote Published | ${isBuyingBtc ? 'BUY' : 'SELL'} ${amountInFloat.toFixed(6)} → ${amountOutFloat.toFixed(6)} | ⏱️ ${timings.total}ms (quote:${timings.getQuote}ms sign:${timings.sign}ms post:${timings.post}ms)`);
 
                     logger.logTrade({
                         type: 'QUOTE_PUBLISHED',
