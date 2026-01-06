@@ -7,7 +7,7 @@ export class InventoryStateService {
     private emergencyMode = false;
     private cachedDirection: 'BUY_BTC_ONLY' | 'SELL_BTC_ONLY' | 'BOTH' | 'NONE' = 'NONE';
     private lastCacheTime = 0;
-    private readonly CACHE_TTL_MS = 30000; // Cache for 30 seconds (increased for quote competitiveness)
+    private readonly CACHE_TTL_MS = 10000; // Cache for 10 seconds (faster reactions to inventory changes)
 
     constructor(
         private nearService: NearService,

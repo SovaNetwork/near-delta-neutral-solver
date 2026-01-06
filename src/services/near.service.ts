@@ -7,8 +7,8 @@ export class NearService {
     private account: Account | undefined;
     private keyPair: any; // Cache the key pair for faster signing
     private balanceCache: Map<string, { balance: BigNumber, timestamp: number, refreshing?: boolean }> = new Map();
-    private readonly CACHE_TTL_MS = 30000; // 30 second cache (increased for quote competitiveness)
-    private readonly CACHE_REFRESH_THRESHOLD_MS = 20000; // Start background refresh after 20s
+    private readonly CACHE_TTL_MS = 10000; // 10 second cache for faster reactions
+    private readonly CACHE_REFRESH_THRESHOLD_MS = 7000; // Start background refresh after 7s
 
     constructor() { }
 
@@ -65,57 +65,33 @@ export class NearService {
             }
         }
 
-        // Parallelize wallet and intents balance calls
-        const [walletBalance, intentsBalance] = await Promise.all([
-            // 1. Wallet Balance (Standard NEP-141)
-            this.account.viewFunction({
-                contractId: tokenId,
-                methodName: 'ft_balance_of',
-                args: { account_id: this.account.accountId }
-            }).then(res => new BigNumber(res)).catch(() => new BigNumber(0)),
-
-            // 2. Intents Contract Balance (Deposited)
-            // The intents contract uses mt_balance_of with "nep141:" prefix
-            this.account.viewFunction({
-                contractId: NEAR_CONFIG.INTENTS_CONTRACT_ID,
-                methodName: 'mt_balance_of',
-                args: { account_id: this.account.accountId, token_id: `nep141:${tokenId}` }
-            }).then(res => new BigNumber(res)).catch((e) => {
-                console.warn(`[Balance] Could not fetch intents balance for ${tokenId}:`, e);
-                return new BigNumber(0);
-            })
-        ]);
-
-        const total = intentsBalance; // Strict Mode: Only funds in Intents Contract are usable for Solver.
+        // Only fetch intents balance (wallet balance is unused, removing saves ~15-30ms)
+        const intentsBalance = await this.account.viewFunction({
+            contractId: NEAR_CONFIG.INTENTS_CONTRACT_ID,
+            methodName: 'mt_balance_of',
+            args: { account_id: this.account.accountId, token_id: `nep141:${tokenId}` }
+        }).then(res => new BigNumber(res)).catch((e) => {
+            console.warn(`[Balance] Could not fetch intents balance for ${tokenId}:`, e);
+            return new BigNumber(0);
+        });
 
         // Cache the result
-        this.balanceCache.set(tokenId, { balance: total, timestamp: now, refreshing: false });
-
-        console.log(`[Balance] ${tokenId} | Usable: ${total.toString()} (Intents: ${intentsBalance.toString()}, Wallet [Unusable]: ${walletBalance.toString()})`);
-        return total;
+        this.balanceCache.set(tokenId, { balance: intentsBalance, timestamp: now, refreshing: false });
+        return intentsBalance;
     }
 
     private async refreshBalanceInBackground(tokenId: string): Promise<void> {
         if (!this.account) return;
 
         try {
-            // Parallelize wallet and intents balance calls
-            const [walletBalance, intentsBalance] = await Promise.all([
-                this.account.viewFunction({
-                    contractId: tokenId,
-                    methodName: 'ft_balance_of',
-                    args: { account_id: this.account.accountId }
-                }).then(res => new BigNumber(res)).catch(() => new BigNumber(0)),
+            // Only fetch intents balance (wallet balance is unused)
+            const intentsBalance = await this.account.viewFunction({
+                contractId: NEAR_CONFIG.INTENTS_CONTRACT_ID,
+                methodName: 'mt_balance_of',
+                args: { account_id: this.account.accountId, token_id: `nep141:${tokenId}` }
+            }).then(res => new BigNumber(res)).catch(() => new BigNumber(0));
 
-                this.account.viewFunction({
-                    contractId: NEAR_CONFIG.INTENTS_CONTRACT_ID,
-                    methodName: 'mt_balance_of',
-                    args: { account_id: this.account.accountId, token_id: `nep141:${tokenId}` }
-                }).then(res => new BigNumber(res)).catch(() => new BigNumber(0))
-            ]);
-
-            const total = intentsBalance;
-            this.balanceCache.set(tokenId, { balance: total, timestamp: Date.now(), refreshing: false });
+            this.balanceCache.set(tokenId, { balance: intentsBalance, timestamp: Date.now(), refreshing: false });
         } catch (e) {
             // If background refresh fails, mark as not refreshing to allow retry
             const cached = this.balanceCache.get(tokenId);

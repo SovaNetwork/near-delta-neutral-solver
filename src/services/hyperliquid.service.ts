@@ -26,11 +26,11 @@ export class HyperliquidService {
     private marginCache: { margin: number, timestamp: number, refreshing?: boolean } | null = null;
     private positionCache: { position: number, timestamp: number, refreshing?: boolean } | null = null;
     private fundingRateCache: { rate: number, timestamp: number } | null = null;
-    private readonly CACHE_TTL_MS = 30000; // 30 second cache (increased for quote competitiveness)
-    private readonly CACHE_REFRESH_THRESHOLD_MS = 20000; // Start background refresh after 20s
-    private readonly POSITION_CACHE_TTL_MS = 30000; // 30 second cache (increased for quote competitiveness)
-    private readonly POSITION_REFRESH_THRESHOLD_MS = 20000; // Start background refresh after 20s
-    private readonly FUNDING_CACHE_TTL_MS = 30000; // 30 second cache for funding rate
+    private readonly CACHE_TTL_MS = 15000; // 15 second cache for margin (faster reactions)
+    private readonly CACHE_REFRESH_THRESHOLD_MS = 10000; // Start background refresh after 10s
+    private readonly POSITION_CACHE_TTL_MS = 10000; // 10 second cache for position (critical for competitiveness)
+    private readonly POSITION_REFRESH_THRESHOLD_MS = 7000; // Start background refresh after 7s
+    private readonly FUNDING_CACHE_TTL_MS = 60000; // 60 second cache for funding rate (changes slowly)
 
     constructor() {
         this.isMainnet = process.env.HYPERLIQUID_MAINNET !== 'false';
