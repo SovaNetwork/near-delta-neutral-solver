@@ -104,15 +104,17 @@ export class HyperliquidService {
     }
 
     getHedgePrice(side: 'bid' | 'ask', size: number): number {
-        if (!this.l2Book || !this.l2Book.levels) {
-            if (Array.isArray(this.l2Book)) {
-                // Handle raw array if needed (though SDK usually normalized)
-                throw new Error("Orderbook not yet available (raw format)");
-            }
+        // Handle both normalized and raw array formats
+        let levels;
+        if (this.l2Book && this.l2Book.levels) {
+            // Normalized format: { levels: [[bids], [asks]] }
+            levels = side === 'bid' ? this.l2Book.levels[0] : this.l2Book.levels[1];
+        } else if (Array.isArray(this.l2Book) && this.l2Book.length === 2) {
+            // Raw array format: [[bids], [asks]]
+            levels = side === 'bid' ? this.l2Book[0] : this.l2Book[1];
+        } else {
             throw new Error("Orderbook not yet available");
         }
-
-        const levels = side === 'bid' ? this.l2Book.levels[0] : this.l2Book.levels[1];
 
         let value = 0;
         let sizeRemaining = size;
