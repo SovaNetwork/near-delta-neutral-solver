@@ -36,16 +36,18 @@ export class LoggerService {
     private positionsFile: string;
 
     constructor() {
-        this.logsDir = path.join(process.cwd(), 'logs');
+        // Use LOGS_DIR env var for Railway volume mount, default to ./logs for local
+        this.logsDir = process.env.LOGS_DIR || path.join(process.cwd(), 'logs');
         this.tradesFile = path.join(this.logsDir, 'trades.jsonl');
         this.positionsFile = path.join(this.logsDir, 'positions.jsonl');
 
         this.ensureLogsDir();
+        console.log(`LoggerService initialized. Logs dir: ${this.logsDir}`);
     }
 
     private ensureLogsDir() {
         if (!fs.existsSync(this.logsDir)) {
-            fs.mkdirSync(this.logsDir);
+            fs.mkdirSync(this.logsDir, { recursive: true });
         }
     }
 
