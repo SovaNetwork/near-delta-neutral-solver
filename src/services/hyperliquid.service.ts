@@ -23,6 +23,9 @@ export class HyperliquidService {
     private coin: string = 'BTC';
     private assetIndex: number = -1;
 
+    private marginCache: { margin: number, timestamp: number } | null = null;
+    private readonly CACHE_TTL_MS = 5000; // 5 second cache
+
     constructor() {
         this.isMainnet = process.env.HYPERLIQUID_MAINNET !== 'false';
 
@@ -134,6 +137,13 @@ export class HyperliquidService {
 
     async getAvailableMargin(): Promise<number> {
         if (!this.wallet) return 0;
+
+        // Check cache first
+        const now = Date.now();
+        if (this.marginCache && (now - this.marginCache.timestamp) < this.CACHE_TTL_MS) {
+            return this.marginCache.margin;
+        }
+
         console.log(`[Hyperliquid] Checking Margin for Derived Address: ${this.wallet.address}`);
         try {
             const userState = await this.infoClient.clearinghouseState({ user: this.wallet.address });
@@ -142,7 +152,12 @@ export class HyperliquidService {
 
             const accountValue = parseFloat(marginSummary.accountValue);
             const totalMarginUsed = parseFloat(marginSummary.totalMarginUsed);
-            return accountValue - totalMarginUsed;
+            const availableMargin = accountValue - totalMarginUsed;
+
+            // Cache the result
+            this.marginCache = { margin: availableMargin, timestamp: now };
+
+            return availableMargin;
         } catch (e) {
             console.error("[Hyperliquid] Failed to fetch margin:", e);
             return 0;

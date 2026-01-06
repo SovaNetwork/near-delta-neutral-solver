@@ -5,6 +5,8 @@ import BigNumber from 'bignumber.js';
 export class NearService {
     private near: Near | undefined;
     private account: Account | undefined;
+    private balanceCache: Map<string, { balance: BigNumber, timestamp: number }> = new Map();
+    private readonly CACHE_TTL_MS = 5000; // 5 second cache
 
     constructor() { }
 
@@ -36,6 +38,13 @@ export class NearService {
     async getBalance(tokenId: string): Promise<BigNumber> {
         if (!this.account) return new BigNumber(0);
 
+        // Check cache first
+        const cached = this.balanceCache.get(tokenId);
+        const now = Date.now();
+        if (cached && (now - cached.timestamp) < this.CACHE_TTL_MS) {
+            return cached.balance;
+        }
+
         // 1. Wallet Balance (Standard NEP-141)
         let walletBalance = new BigNumber(0);
         try {
@@ -65,6 +74,10 @@ export class NearService {
         }
 
         const total = intentsBalance; // Strict Mode: Only funds in Intents Contract are usable for Solver.
+
+        // Cache the result
+        this.balanceCache.set(tokenId, { balance: total, timestamp: now });
+
         console.log(`[Balance] ${tokenId} | Usable: ${total.toString()} (Intents: ${intentsBalance.toString()}, Wallet [Unusable]: ${walletBalance.toString()})`);
         return total;
     }
