@@ -132,9 +132,15 @@ async function connectToBusWithRetry(
                 return;
             }
 
+            // Debug: log first few messages to see what we're getting
+            console.log('📥 Raw message:', JSON.stringify(msg).substring(0, 300));
+
             // Parse quote request: { jsonrpc: "2.0", method: "subscribe", params: { subscription, quote_id, ... } }
             const params = msg.params;
-            if (!params || !params.quote_id) return;
+            if (!params || !params.quote_id) {
+                console.log('⏭️ Skipping (no params or quote_id)');
+                return;
+            }
 
             // Map defuse field names to our internal format
             const req = {
