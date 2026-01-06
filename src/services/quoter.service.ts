@@ -86,21 +86,23 @@ export class QuoterService {
                 return undefined;
             }
 
-            // Position Capacity Check
+            // Position Capacity Check & Funding Rate Check (parallel for speed)
             const hedgeDirection = weAreBuyingBtc ? 'short' : 'long';
-            const hasCapacity = await this.hyperliquidService.checkPositionCapacity(hedgeDirection, btcSize);
+
+            // Run checks in parallel when buying BTC
+            const [hasCapacity, fundingRate] = await Promise.all([
+                this.hyperliquidService.checkPositionCapacity(hedgeDirection, btcSize),
+                weAreBuyingBtc ? this.hyperliquidService.getFundingRate() : Promise.resolve(0)
+            ]);
+
             if (!hasCapacity) {
                 console.warn(`Insufficient Position Capacity for ${hedgeDirection} ${btcSize} BTC`);
                 return undefined;
             }
 
-            // 5a. Check Funding Rate Risk (If opening a position)
-            if (weAreBuyingBtc) {
-                const fundingRate = await this.hyperliquidService.getFundingRate();
-                if (fundingRate < BTC_ONLY_CONFIG.MIN_HOURLY_FUNDING_RATE) {
-                    console.warn(`High Funding Rate: ${fundingRate}. Rejecting Quote.`);
-                    return undefined;
-                }
+            if (weAreBuyingBtc && fundingRate < BTC_ONLY_CONFIG.MIN_HOURLY_FUNDING_RATE) {
+                console.warn(`High Funding Rate: ${fundingRate}. Rejecting Quote.`);
+                return undefined;
             }
 
             // 6. Calculate Reference Price with Actual Size
