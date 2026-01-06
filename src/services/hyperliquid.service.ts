@@ -24,7 +24,11 @@ export class HyperliquidService {
     private assetIndex: number = -1;
 
     private marginCache: { margin: number, timestamp: number } | null = null;
+    private positionCache: { position: number, timestamp: number } | null = null;
+    private fundingRateCache: { rate: number, timestamp: number } | null = null;
     private readonly CACHE_TTL_MS = 5000; // 5 second cache
+    private readonly POSITION_CACHE_TTL_MS = 2000; // 2 second cache for positions (hot path)
+    private readonly FUNDING_CACHE_TTL_MS = 30000; // 30 second cache for funding rate
 
     constructor() {
         this.isMainnet = process.env.HYPERLIQUID_MAINNET !== 'false';
@@ -168,29 +172,39 @@ export class HyperliquidService {
 
     async getBtcPosition(): Promise<number> {
         if (!this.wallet) return 0;
+
+        // Check cache first (hot path optimization)
+        const now = Date.now();
+        if (this.positionCache && (now - this.positionCache.timestamp) < this.POSITION_CACHE_TTL_MS) {
+            return this.positionCache.position;
+        }
+
         const userState = await this.infoClient.clearinghouseState({ user: this.wallet.address });
         const positions = userState.assetPositions;
         const btcPos = positions.find((p: any) => p.position.coin === this.coin);
-        if (!btcPos) return 0;
-        return parseFloat(btcPos.position.szi);
+        const position = btcPos ? parseFloat(btcPos.position.szi) : 0;
+
+        // Cache the result
+        this.positionCache = { position, timestamp: now };
+        return position;
     }
 
     async getFundingRate(): Promise<number> {
+        // Check cache first (funding rate changes slowly, hot path optimization)
+        const now = Date.now();
+        if (this.fundingRateCache && (now - this.fundingRateCache.timestamp) < this.FUNDING_CACHE_TTL_MS) {
+            return this.fundingRateCache.rate;
+        }
+
         // Fetch metaAndAssetCtxs to get funding
         const metaAndCtxs = await this.infoClient.metaAndAssetCtxs();
         const ctxs = metaAndCtxs[1]; // AssetCtx[]
-        // Need to find by asset index
         const assetCtx = ctxs[this.assetIndex];
-        if (!assetCtx) return 0;
+        const rate = assetCtx ? parseFloat(assetCtx.funding) : 0;
 
-        // funding is usually 'funding' field.
-        // Check SDK type definition or assume 'funding'
-        // SDK typings: AssetCtx usually has 'funding' (hourly rate?) or 'premium'?
-        // The standard HL API returns 'funding' as the rate since last update?
-        // Actually assetCtx has 'funding' which is the current accumulated funding?
-        // No, 'funding' in AssetCtx is the instantaneous funding rate or similar?
-        // Let's use 'funding' field and parse it.
-        return parseFloat(assetCtx.funding);
+        // Cache the result
+        this.fundingRateCache = { rate, timestamp: now };
+        return rate;
     }
 
     async executeHedge(direction: 'short' | 'long', size: number) {
@@ -215,6 +229,9 @@ export class HyperliquidService {
             }],
             grouping: 'na'
         });
+
+        // Invalidate position cache after hedge execution
+        this.positionCache = null;
 
         return result;
     }
