@@ -132,15 +132,14 @@ async function connectToBusWithRetry(
             const quote = await quoterService.getQuote(req);
 
             if (quote) {
-                console.log(`Generated Quote for ${req.amount_in}: Out ${quote.amount_out}`);
-
-                // Generate Nonce (Mocking intent expectation)
-                const nonce = '0x' + randomBytes(32).toString('hex');
-
-                // Determine direction
                 const isBuyingBtc = req.token_in === BTC_ONLY_CONFIG.BTC_TOKEN_ID;
                 const decimals = isBuyingBtc ? 8 : 6;
                 const amountInFloat = parseFloat(req.amount_in) / Math.pow(10, decimals);
+                const amountOutFloat = parseFloat(quote.amount_out) / (isBuyingBtc ? 1e6 : 1e8);
+                console.log(`📊 Quote: ${isBuyingBtc ? 'BUY BTC' : 'SELL BTC'} | In: ${amountInFloat.toFixed(6)} ${isBuyingBtc ? 'BTC' : 'USDT'} → Out: ${amountOutFloat.toFixed(6)} ${isBuyingBtc ? 'USDT' : 'BTC'}`);
+
+                // Generate Nonce (Mocking intent expectation)
+                const nonce = '0x' + randomBytes(32).toString('hex');
 
                 let amountBtcForHedge = 0;
                 if (isBuyingBtc) {
@@ -179,7 +178,7 @@ async function connectToBusWithRetry(
                             signature: signature
                         }
                     });
-                    console.log("Quote Published");
+                    console.log(`✅ Quote Published`);
 
                     logger.logTrade({
                         type: 'QUOTE_PUBLISHED',
