@@ -271,6 +271,36 @@ export class HyperliquidService {
         return rate;
     }
 
+    getOrderbookSummary(): { bestBid: number; bestAsk: number; midPrice: number; spread: number; spreadBps: number } | null {
+        try {
+            let bids, asks;
+
+            if (this.l2Book && this.l2Book.levels) {
+                bids = this.l2Book.levels[0];
+                asks = this.l2Book.levels[1];
+            } else if (Array.isArray(this.l2Book) && this.l2Book.length === 2) {
+                bids = this.l2Book[0];
+                asks = this.l2Book[1];
+            } else {
+                return null;
+            }
+
+            if (!bids || !asks || bids.length === 0 || asks.length === 0) {
+                return null;
+            }
+
+            const bestBid = parseFloat(bids[0].px);
+            const bestAsk = parseFloat(asks[0].px);
+            const midPrice = (bestBid + bestAsk) / 2;
+            const spread = bestAsk - bestBid;
+            const spreadBps = (spread / midPrice) * 10000;
+
+            return { bestBid, bestAsk, midPrice, spread, spreadBps };
+        } catch (e) {
+            return null;
+        }
+    }
+
     async executeHedge(direction: 'short' | 'long', size: number) {
         if (!this.exchangeClient) throw new Error("Exchange client not initialized");
 

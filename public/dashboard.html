@@ -51,11 +51,20 @@
             gap: 16px;
             margin-bottom: 16px;
         }
+        .grid-4 {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+        @media (max-width: 1100px) {
+            .grid-4 { grid-template-columns: 1fr 1fr; }
+        }
         @media (max-width: 900px) {
             .grid-3 { grid-template-columns: 1fr 1fr; }
         }
         @media (max-width: 600px) {
-            .grid-2, .grid-3 { grid-template-columns: 1fr; }
+            .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
         }
 
         .card {
@@ -240,6 +249,54 @@
             font-size: 0.9em;
             color: var(--text);
         }
+
+        /* Market display */
+        .market-price {
+            text-align: center;
+            padding: 8px 0;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 8px;
+        }
+        .price-label {
+            display: block;
+            font-size: 0.7em;
+            color: var(--muted);
+            text-transform: uppercase;
+        }
+        .price-value {
+            font-family: monospace;
+            font-size: 1.4em;
+            font-weight: bold;
+            color: var(--text);
+        }
+        .market-row {
+            display: flex;
+            gap: 8px;
+        }
+        .market-item {
+            flex: 1;
+            text-align: center;
+            padding: 6px;
+            border-radius: 4px;
+        }
+        .market-item.bid {
+            background: rgba(63, 185, 80, 0.1);
+        }
+        .market-item.ask {
+            background: rgba(248, 81, 73, 0.1);
+        }
+        .market-label {
+            display: block;
+            font-size: 0.65em;
+            color: var(--muted);
+            text-transform: uppercase;
+        }
+        .market-value {
+            font-family: monospace;
+            font-size: 0.95em;
+        }
+        .market-item.bid .market-value { color: var(--green); }
+        .market-item.ask .market-value { color: var(--red); }
     </style>
 </head>
 <body>
@@ -252,7 +309,7 @@
         </div>
     </div>
 
-    <div class="grid-3">
+    <div class="grid-4">
         <!-- NEAR Intents Balances -->
         <div class="card">
             <div class="card-title">
@@ -279,7 +336,7 @@
         <div class="card">
             <div class="card-title">
                 <span class="icon">📊</span>
-                Hyperliquid
+                Hyperliquid Position
             </div>
             <div class="balance-row">
                 <div class="balance-label">
@@ -294,6 +351,41 @@
                     <span class="chain">Available</span>
                 </div>
                 <div class="balance-value" id="hl-margin">-</div>
+            </div>
+        </div>
+
+        <!-- Hyperliquid Market Data -->
+        <div class="card">
+            <div class="card-title">
+                <span class="icon">💹</span>
+                HL BTC Market
+            </div>
+            <div class="market-price">
+                <span class="price-label">Mid</span>
+                <span class="price-value" id="market-mid">-</span>
+            </div>
+            <div class="market-row">
+                <div class="market-item bid">
+                    <span class="market-label">Bid</span>
+                    <span class="market-value" id="market-bid">-</span>
+                </div>
+                <div class="market-item ask">
+                    <span class="market-label">Ask</span>
+                    <span class="market-value" id="market-ask">-</span>
+                </div>
+            </div>
+            <div class="balance-row" style="margin-top: 8px; padding-top: 8px;">
+                <div class="balance-label">
+                    <span class="token">Spread</span>
+                </div>
+                <span class="config-value" id="market-spread">-</span>
+            </div>
+            <div class="balance-row">
+                <div class="balance-label">
+                    <span class="token">Funding</span>
+                    <span class="chain">1h</span>
+                </div>
+                <span class="config-value" id="market-funding">-</span>
             </div>
         </div>
 
@@ -487,6 +579,34 @@
                     document.getElementById('lost-count').textContent = stats.quotesRejected || 0;
                     document.getElementById('volume').textContent = (stats.volumeBtc || 0).toFixed(6);
                     document.getElementById('hedges').textContent = stats.hedgesExecuted || 0;
+                }
+
+                // Market data
+                const marketRes = await fetch('/api/market');
+                if (marketRes.ok) {
+                    const market = await marketRes.json();
+
+                    if (market.orderbook) {
+                        const ob = market.orderbook;
+                        document.getElementById('market-mid').textContent = '$' + ob.midPrice.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+                        document.getElementById('market-bid').textContent = '$' + ob.bestBid.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+                        document.getElementById('market-ask').textContent = '$' + ob.bestAsk.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+                        document.getElementById('market-spread').textContent = ob.spreadBps.toFixed(2) + ' bps';
+                    }
+
+                    if (market.funding) {
+                        const fundingEl = document.getElementById('market-funding');
+                        fundingEl.textContent = market.funding.ratePercent;
+                        // Color based on funding rate (positive = longs pay, negative = shorts pay)
+                        const rate = market.funding.rate;
+                        if (rate > 0.0001) {
+                            fundingEl.style.color = 'var(--red)';
+                        } else if (rate < -0.0001) {
+                            fundingEl.style.color = 'var(--green)';
+                        } else {
+                            fundingEl.style.color = 'var(--muted)';
+                        }
+                    }
                 }
 
                 // Quotes

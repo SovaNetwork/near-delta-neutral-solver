@@ -123,6 +123,26 @@ export class ApiService {
             });
         });
 
+        // Market data (Hyperliquid orderbook + funding)
+        this.app.get('/api/market', async (req, res) => {
+            try {
+                const orderbook = this.hlService.getOrderbookSummary();
+                const fundingRate = await this.hlService.getFundingRate();
+
+                res.json({
+                    orderbook,
+                    funding: {
+                        rate: fundingRate,
+                        ratePercent: (fundingRate * 100).toFixed(4) + '%',
+                        annualized: ((fundingRate * 24 * 365) * 100).toFixed(2) + '%'
+                    },
+                    timestamp: new Date().toISOString()
+                });
+            } catch (e) {
+                res.status(500).json({ error: String(e) });
+            }
+        });
+
         // Metrics (Prometheus format)
         this.app.get('/metrics', async (req, res) => {
             try {
