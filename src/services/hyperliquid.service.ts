@@ -121,11 +121,19 @@ export class HyperliquidService {
 
     async getAvailableMargin(): Promise<number> {
         if (!this.wallet) return 0;
-        const userState = await this.infoClient.clearinghouseState({ user: this.wallet.address });
-        const marginSummary = userState.marginSummary;
-        const accountValue = parseFloat(marginSummary.accountValue);
-        const totalMarginUsed = parseFloat(marginSummary.totalMarginUsed);
-        return accountValue - totalMarginUsed;
+        console.log(`[Hyperliquid] Checking Margin for Derived Address: ${this.wallet.address}`);
+        try {
+            const userState = await this.infoClient.clearinghouseState({ user: this.wallet.address });
+            const marginSummary = userState.marginSummary;
+            console.log(`[Hyperliquid] Raw Margin Summary:`, JSON.stringify(marginSummary));
+
+            const accountValue = parseFloat(marginSummary.accountValue);
+            const totalMarginUsed = parseFloat(marginSummary.totalMarginUsed);
+            return accountValue - totalMarginUsed;
+        } catch (e) {
+            console.error("[Hyperliquid] Failed to fetch margin:", e);
+            return 0;
+        }
     }
 
     async getBtcPosition(): Promise<number> {
