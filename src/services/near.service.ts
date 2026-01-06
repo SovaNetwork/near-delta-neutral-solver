@@ -41,6 +41,7 @@ export class NearService {
                 methodName: 'ft_balance_of',
                 args: { account_id: this.account.accountId }
             });
+            console.log(`[NearService] Balance for ${tokenId}: ${balanceStr}`);
             return new BigNumber(balanceStr);
         } catch (e) {
             console.error(`Failed to get balance for ${tokenId}:`, e);

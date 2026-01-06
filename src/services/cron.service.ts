@@ -60,9 +60,11 @@ export class CronService {
             const canHedge = availableMargin > BTC_ONLY_CONFIG.MIN_MARGIN_THRESHOLD;
 
             if (!canHedge) {
-                console.warn(`[Status] IDLE - Low Hyperliquid Margin (${availableMargin} < ${BTC_ONLY_CONFIG.MIN_MARGIN_THRESHOLD}).`);
+                console.warn(`[Status] IDLE - Low Hyperliquid Margin: ${availableMargin} (Required: >${BTC_ONLY_CONFIG.MIN_MARGIN_THRESHOLD})`);
             } else if (!canBuy && !canSell) {
-                console.warn(`[Status] IDLE - Low Inventory (Spot USDT: ${spotUsdt}, Spot BTC: ${spotBtc}).`);
+                console.warn(`[Status] IDLE - Low Inventory`);
+                console.warn(`  > USDT: ${spotUsdt} (Required: >${BTC_ONLY_CONFIG.MIN_USDT_RESERVE}) [Token: ${BTC_ONLY_CONFIG.USDT_TOKEN_ID}]`);
+                console.warn(`  > BTC: ${spotBtc} (Required: >${BTC_ONLY_CONFIG.MIN_TRADE_SIZE_BTC}) [Token: ${BTC_ONLY_CONFIG.BTC_TOKEN_ID}]`);
             } else {
                 const modes = [];
                 if (canBuy) modes.push("BUYING");
