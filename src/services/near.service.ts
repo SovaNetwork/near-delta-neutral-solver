@@ -35,18 +35,36 @@ export class NearService {
 
     async getBalance(tokenId: string): Promise<BigNumber> {
         if (!this.account) return new BigNumber(0);
+
+        // 1. Wallet Balance (Standard NEP-141)
+        let walletBalance = new BigNumber(0);
         try {
-            const balanceStr = await this.account.viewFunction({
+            const res = await this.account.viewFunction({
                 contractId: tokenId,
                 methodName: 'ft_balance_of',
                 args: { account_id: this.account.accountId }
             });
-            console.log(`[NearService] Balance for ${tokenId}: ${balanceStr}`);
-            return new BigNumber(balanceStr);
+            walletBalance = new BigNumber(res);
         } catch (e) {
-            console.error(`Failed to get balance for ${tokenId}:`, e);
-            return new BigNumber(0);
+            // Ignore errors for wallet balance (e.g. token not registered)
         }
+
+        // 2. Intents Contract Balance (Deposited)
+        let intentsBalance = new BigNumber(0);
+        try {
+            const res = await this.account.viewFunction({
+                contractId: NEAR_CONFIG.INTENTS_CONTRACT_ID,
+                methodName: 'get_balance',
+                args: { account_id: this.account.accountId, token_id: tokenId }
+            });
+            intentsBalance = new BigNumber(res);
+        } catch (e) {
+            // Ignore errors or log warning if critical
+        }
+
+        const total = intentsBalance; // Strict Mode: Only funds in Intents Contract are usable for Solver.
+        console.log(`[Balance] ${tokenId} | Usable: ${total.toString()} (Intents: ${intentsBalance.toString()}, Wallet [Unusable]: ${walletBalance.toString()})`);
+        return total;
     }
 
     async viewContract(contractId: string, method: string, args: any): Promise<any> {
