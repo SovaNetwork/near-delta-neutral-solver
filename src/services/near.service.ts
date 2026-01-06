@@ -50,16 +50,18 @@ export class NearService {
         }
 
         // 2. Intents Contract Balance (Deposited)
+        // The intents contract uses mt_balance_of with "nep141:" prefix
         let intentsBalance = new BigNumber(0);
         try {
             const res = await this.account.viewFunction({
                 contractId: NEAR_CONFIG.INTENTS_CONTRACT_ID,
-                methodName: 'get_balance',
-                args: { account_id: this.account.accountId, token_id: tokenId }
+                methodName: 'mt_balance_of',
+                args: { account_id: this.account.accountId, token_id: `nep141:${tokenId}` }
             });
             intentsBalance = new BigNumber(res);
         } catch (e) {
             // Ignore errors or log warning if critical
+            console.warn(`[Balance] Could not fetch intents balance for ${tokenId}:`, e);
         }
 
         const total = intentsBalance; // Strict Mode: Only funds in Intents Contract are usable for Solver.
