@@ -1,7 +1,8 @@
 export const NEAR_CONFIG = {
     networkId: process.env.NEAR_NETWORK_ID || 'mainnet',
-    // Use free tier + fallback to avoid rate limits (same as AMM solver)
-    nodeUrl: process.env.NEAR_RPC_URL || 'https://1rpc.io/near',
+    // dRPC has 210M CU/month free tier - most generous public RPC
+    // Alternatives: https://near.blockpi.network/v1/rpc/public (50M/month), https://near.lava.build
+    nodeUrl: process.env.NEAR_RPC_URL || 'https://near.drpc.org',
     walletUrl: 'https://wallet.near.org',
     helperUrl: 'https://helper.mainnet.near.org',
     explorerUrl: 'https://explorer.near.org',

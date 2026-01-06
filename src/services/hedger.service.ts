@@ -15,6 +15,9 @@ export class HedgerService {
     private pendingQuotes = new Map<string, QuoteData>(); // nonce -> data
     private pollInterval: NodeJS.Timeout | null = null;
     private processing = false; // Simple lock to avoid overlapping polls if slow
+    private readonly POLL_INTERVAL_MS = 5000; // Check every 5 seconds (reduced from 2s to avoid rate limits)
+    private readonly MAX_CONCURRENT_NONCE_CHECKS = 3; // Max parallel nonce checks to avoid RPC rate limits
+    private readonly NONCE_CHECK_DELAY_MS = 100; // Delay between batch checks
 
     constructor(
         private nearService: NearService,
@@ -25,7 +28,7 @@ export class HedgerService {
     start() {
         if (this.pollInterval) return;
         console.log("Hedger Service Started.");
-        this.pollInterval = setInterval(() => this.poll(), 2000); // Check every 2 seconds
+        this.pollInterval = setInterval(() => this.poll(), this.POLL_INTERVAL_MS);
     }
 
     trackQuote(nonce: string, data: Omit<QuoteData, 'timestamp'>) {
@@ -54,21 +57,36 @@ export class HedgerService {
                 }
             }
 
-            // Batch check all nonces in parallel for better performance
+            // Check nonces in small batches to avoid RPC rate limits
             const noncesArray = Array.from(this.pendingQuotes.entries());
+            const nonceResults: { nonce: string; data: QuoteData; isUsed: boolean }[] = [];
 
-            // Check all nonces in parallel
-            const nonceCheckPromises = noncesArray.map(async ([nonce, data]) => {
-                try {
-                    const isUsed = await this.nearService.wasNonceUsed(nonce);
-                    return { nonce, data, isUsed };
-                } catch (e) {
-                    console.error(`Error checking nonce ${nonce}:`, e);
-                    return { nonce, data, isUsed: false };
+            // Process in batches of MAX_CONCURRENT_NONCE_CHECKS
+            for (let i = 0; i < noncesArray.length; i += this.MAX_CONCURRENT_NONCE_CHECKS) {
+                const batch = noncesArray.slice(i, i + this.MAX_CONCURRENT_NONCE_CHECKS);
+
+                const batchResults = await Promise.all(
+                    batch.map(async ([nonce, data]) => {
+                        try {
+                            const isUsed = await this.nearService.wasNonceUsed(nonce);
+                            return { nonce, data, isUsed };
+                        } catch (e: any) {
+                            // Don't spam logs for rate limit errors
+                            if (!e?.message?.includes('429') && !e?.message?.includes('Rate limit')) {
+                                console.error(`Error checking nonce ${nonce}:`, e);
+                            }
+                            return { nonce, data, isUsed: false };
+                        }
+                    })
+                );
+
+                nonceResults.push(...batchResults);
+
+                // Add delay between batches to avoid rate limits
+                if (i + this.MAX_CONCURRENT_NONCE_CHECKS < noncesArray.length) {
+                    await new Promise(r => setTimeout(r, this.NONCE_CHECK_DELAY_MS));
                 }
-            });
-
-            const nonceResults = await Promise.all(nonceCheckPromises);
+            }
 
             // Process all used nonces
             for (const { nonce, data, isUsed } of nonceResults) {
