@@ -36,6 +36,8 @@ let reconnectAttempts = 0;
 // Context to share mutable WebSocket reference
 interface SolverContext {
     ws: WebSocket | null;
+    pendingRequests: Map<number, (response: any) => void>;
+    requestCounter: number;
 }
 
 async function main() {
@@ -97,7 +99,11 @@ async function main() {
         warmCaches(); // Run in background, don't await
     }, 15000);
 
-    const ctx: SolverContext = { ws: null };
+    const ctx: SolverContext = {
+        ws: null,
+        pendingRequests: new Map(),
+        requestCounter: 1
+    };
 
     // Graceful Shutdown
     // Registered ONCE here to avoid memory leaks on reconnection
@@ -163,6 +169,14 @@ async function connectToBusWithRetry(
         const t0 = performance.now();
         try {
             const msg = JSON.parse(data.toString());
+
+            // Handle RPC responses (has 'id' field matching our requests)
+            if (msg.id !== undefined && ctx.pendingRequests.has(msg.id)) {
+                const resolver = ctx.pendingRequests.get(msg.id);
+                ctx.pendingRequests.delete(msg.id);
+                if (resolver) resolver(msg);
+                return;
+            }
 
             // Handle subscription confirmation (has 'result' field)
             if (msg.result) {
@@ -235,18 +249,39 @@ async function connectToBusWithRetry(
                 const signature = await nearService.sign(messageToSign);
                 const t5 = performance.now();
 
-                // Publish via WebSocket (much faster than HTTP POST)
+                // Publish via WebSocket with proper RTT measurement
                 try {
-                    ws.send(JSON.stringify({
+                    const requestId = ctx.requestCounter++;
+                    const quoteRequest = {
                         jsonrpc: "2.0",
-                        id: Date.now(),
+                        id: requestId,
                         method: 'submit_quote',
                         params: {
                             quote_output: quote.amount_out,
                             nonce: nonce,
                             signature: signature
                         }
-                    }));
+                    };
+
+                    // Send and wait for relay acknowledgment
+                    const responsePromise = new Promise<any>((resolve, reject) => {
+                        const timeout = setTimeout(() => {
+                            ctx.pendingRequests.delete(requestId);
+                            reject(new Error('Quote submission timeout'));
+                        }, 5000);
+
+                        ctx.pendingRequests.set(requestId, (response) => {
+                            clearTimeout(timeout);
+                            if (response.error) {
+                                reject(new Error(`Relay error: ${JSON.stringify(response.error)}`));
+                            } else {
+                                resolve(response.result);
+                            }
+                        });
+                    });
+
+                    ws.send(JSON.stringify(quoteRequest));
+                    await responsePromise;
                     const t6 = performance.now();
 
                     const timings = {
