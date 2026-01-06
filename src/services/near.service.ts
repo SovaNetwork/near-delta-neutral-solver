@@ -135,12 +135,16 @@ export class NearService {
         });
     }
 
-    async sign(message: string): Promise<string> {
+    async sign(message: Buffer): Promise<{ signature: Uint8Array; publicKey: { data: Uint8Array } }> {
         if (!this.keyPair) throw new Error("NearService not initialized or key not loaded");
 
-        const msgBuffer = Buffer.from(message);
-        const signature = this.keyPair.sign(msgBuffer);
-        return Buffer.from(signature.signature).toString('hex');
+        const signature = this.keyPair.sign(message);
+        return {
+            signature: signature.signature,
+            publicKey: {
+                data: this.keyPair.getPublicKey().data
+            }
+        };
     }
 
     async wasNonceUsed(nonce: string): Promise<boolean> {

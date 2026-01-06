@@ -7,28 +7,17 @@ import { CronService } from './services/cron.service';
 import { LoggerService } from './services/logger.service';
 import { ApiService } from './services/api.service';
 import { BTC_ONLY_CONFIG } from './configs/btc-only.config';
+import { NEAR_CONFIG } from './configs/near.config';
 import WebSocket from 'ws';
-import axios from 'axios';
 import * as dotenv from 'dotenv';
-import { randomBytes } from 'crypto';
 import { performance } from 'perf_hooks';
-import * as http from 'http';
-import * as https from 'https';
+import bs58 from 'bs58';
+import { SignStandardEnum, IMessage } from './interfaces/intents.interface';
+import { serializeIntent, generateRandomNonce } from './utils/hashing';
 
 dotenv.config();
 
 const SOLVER_BUS_WS = process.env.SOLVER_BUS_WS_URL || 'wss://solver-relay-v2.chaindefuser.com/ws';
-const SOLVER_BUS_RPC = process.env.SOLVER_BUS_RPC_URL || 'https://solver-relay-v2.chaindefuser.com/rpc';
-
-// Create axios instance with HTTP keep-alive for connection reuse
-const axiosInstance = axios.create({
-    httpAgent: new http.Agent({ keepAlive: true, keepAliveMsecs: 30000 }),
-    httpsAgent: new https.Agent({ keepAlive: true, keepAliveMsecs: 30000 }),
-    timeout: 10000,
-    headers: {
-        'Connection': 'keep-alive'
-    }
-});
 
 // Global retry state for simplicity
 let reconnectAttempts = 0;
@@ -219,48 +208,77 @@ async function connectToBusWithRetry(
                 const amountInFloat = parseFloat(req.amount_in) / Math.pow(10, decimals);
                 const amountOutFloat = parseFloat(quote.amount_out) / (isBuyingBtc ? 1e6 : 1e8);
 
-                // Generate Nonce - use base64 format for NEAR
-                const nonce = randomBytes(32).toString('base64');
+                // Build proper intents message
+                const quoteDeadlineMs = quoteData.min_deadline_ms + 60000; // Add 60s buffer
+                const standard = SignStandardEnum.nep413;
+
+                // Add nep141: prefix back for intents
+                const tokenInWithPrefix = `nep141:${req.token_in}`;
+                const tokenOutWithPrefix = `nep141:${req.token_out}`;
+
+                const message: IMessage = {
+                    signer_id: NEAR_CONFIG.SOLVER_ID,
+                    deadline: new Date(Date.now() + quoteDeadlineMs).toISOString(),
+                    intents: [
+                        {
+                            intent: 'token_diff',
+                            diff: {
+                                [tokenInWithPrefix]: req.amount_in,
+                                [tokenOutWithPrefix]: `-${quote.amount_out}`
+                            }
+                        }
+                    ]
+                };
+
+                const messageStr = JSON.stringify(message);
+                const nonce = generateRandomNonce();
+                const recipient = NEAR_CONFIG.INTENTS_CONTRACT_ID;
 
                 let amountBtcForHedge = 0;
                 if (isBuyingBtc) {
                     amountBtcForHedge = amountInFloat;
                 } else {
-                    // Output is BTC.
                     amountBtcForHedge = parseFloat(quote.amount_out) / 1e8;
                 }
 
                 hedgerService.trackQuote(nonce, {
-                    direction: isBuyingBtc ? 'short' : 'long', // If we Buy BTC, we Hedge Short.
+                    direction: isBuyingBtc ? 'short' : 'long',
                     amountBtc: amountBtcForHedge,
                     quoteId: nonce
                 });
 
-                // Sign Payload
-                const messageToSign = `${nonce}:${quote.amount_out}`;
-
-                // Validate payload before signing
-                if (messageToSign.length < 10) {
-                    console.error("Invalid payload to sign");
-                    return;
-                }
-
                 const t4 = performance.now();
-                const signature = await nearService.sign(messageToSign);
+                const quoteHash = serializeIntent(messageStr, recipient, nonce, standard);
+                const signatureData = await nearService.sign(quoteHash);
                 const t5 = performance.now();
 
                 // Publish via WebSocket with proper RTT measurement
                 try {
                     const requestId = ctx.requestCounter++;
+
+                    // Format quote response to match relay expectations
+                    const quoteResponse = {
+                        quote_id: quoteData.quote_id,
+                        quote_output: {
+                            amount_out: quote.amount_out
+                        },
+                        signed_data: {
+                            standard,
+                            payload: {
+                                message: messageStr,
+                                nonce,
+                                recipient
+                            },
+                            signature: `ed25519:${bs58.encode(signatureData.signature)}`,
+                            public_key: `ed25519:${bs58.encode(signatureData.publicKey.data)}`
+                        }
+                    };
+
                     const quoteRequest = {
                         jsonrpc: "2.0",
                         id: requestId,
-                        method: 'submit_quote',
-                        params: {
-                            quote_output: quote.amount_out,
-                            nonce: nonce,
-                            signature: signature
-                        }
+                        method: 'quote_response',
+                        params: [quoteResponse]
                     };
 
                     // Send and wait for relay acknowledgment
