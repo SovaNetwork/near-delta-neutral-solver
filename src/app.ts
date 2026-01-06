@@ -132,30 +132,29 @@ async function connectToBusWithRetry(
                 return;
             }
 
-            // Debug: log first few messages to see what we're getting
-            console.log('📥 Raw message:', JSON.stringify(msg).substring(0, 300));
+            // Parse quote request: { method: "event", params: { subscription, data: { quote_id, ... } } }
+            const data = msg.params?.data;
+            if (!data || !data.quote_id) return;
 
-            // Parse quote request: { jsonrpc: "2.0", method: "subscribe", params: { subscription, quote_id, ... } }
-            const params = msg.params;
-            if (!params || !params.quote_id) {
-                console.log('⏭️ Skipping (no params or quote_id)');
-                return;
-            }
+            // Strip nep141: prefix from token IDs
+            const stripPrefix = (tokenId: string) => tokenId.replace(/^nep\d+:/, '');
 
             // Map defuse field names to our internal format
             const req = {
-                token_in: params.defuse_asset_identifier_in,
-                token_out: params.defuse_asset_identifier_out,
-                amount_in: params.exact_amount_in || params.exact_amount_out
+                token_in: stripPrefix(data.defuse_asset_identifier_in),
+                token_out: stripPrefix(data.defuse_asset_identifier_out),
+                amount_in: data.exact_amount_in || data.exact_amount_out
             };
-
-            console.log(`📨 Quote request: ${req.token_in} → ${req.token_out}, amount: ${req.amount_in}`);
 
             // Validate Token Support
             if (req.token_in !== BTC_ONLY_CONFIG.BTC_TOKEN_ID && req.token_in !== BTC_ONLY_CONFIG.USDT_TOKEN_ID) {
-                console.log(`❌ Unsupported token: ${req.token_in}`);
                 return;
             }
+            if (req.token_out !== BTC_ONLY_CONFIG.BTC_TOKEN_ID && req.token_out !== BTC_ONLY_CONFIG.USDT_TOKEN_ID) {
+                return;
+            }
+
+            console.log(`📨 Quote: ${req.token_in.substring(0, 20)}... → ${req.token_out.substring(0, 20)}...`);
 
             const quote = await quoterService.getQuote(req);
 
