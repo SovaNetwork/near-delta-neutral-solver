@@ -133,17 +133,17 @@ async function connectToBusWithRetry(
             }
 
             // Parse quote request: { method: "event", params: { subscription, data: { quote_id, ... } } }
-            const data = msg.params?.data;
-            if (!data || !data.quote_id) return;
+            const quoteData = msg.params?.data;
+            if (!quoteData || !quoteData.quote_id) return;
 
             // Strip nep141: prefix from token IDs
             const stripPrefix = (tokenId: string) => tokenId.replace(/^nep\d+:/, '');
 
             // Map defuse field names to our internal format
             const req = {
-                token_in: stripPrefix(data.defuse_asset_identifier_in),
-                token_out: stripPrefix(data.defuse_asset_identifier_out),
-                amount_in: data.exact_amount_in || data.exact_amount_out
+                token_in: stripPrefix(quoteData.defuse_asset_identifier_in),
+                token_out: stripPrefix(quoteData.defuse_asset_identifier_out),
+                amount_in: quoteData.exact_amount_in || quoteData.exact_amount_out
             };
 
             // Validate Token Support
