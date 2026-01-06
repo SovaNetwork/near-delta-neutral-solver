@@ -16,6 +16,7 @@
             --red: #f85149;
             --blue: #58a6ff;
             --yellow: #d29922;
+            --purple: #a371f7;
         }
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
@@ -38,25 +39,89 @@
         .status.online { background: var(--green); color: #000; }
         .status.offline { background: var(--red); color: #fff; }
 
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+        @media (max-width: 800px) {
+            .grid-2 { grid-template-columns: 1fr; }
+        }
+
+        .card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 16px;
+        }
+        .card-title {
+            font-size: 0.7em;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--muted);
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .card-title .icon { font-size: 1.2em; }
+
+        .balance-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid var(--border);
+        }
+        .balance-row:last-child { border-bottom: none; }
+        .balance-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .balance-label .token {
+            font-weight: 600;
+            color: var(--text);
+        }
+        .balance-label .chain {
+            font-size: 0.75em;
+            color: var(--muted);
+            background: rgba(255,255,255,0.05);
+            padding: 2px 6px;
+            border-radius: 3px;
+        }
+        .balance-value {
+            font-family: monospace;
+            font-weight: bold;
+            font-size: 1.1em;
+        }
+        .balance-value.green { color: var(--green); }
+        .balance-value.red { color: var(--red); }
+        .balance-value.yellow { color: var(--yellow); }
+
         .stats-row {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            grid-template-columns: repeat(3, 1fr);
             gap: 12px;
             margin-bottom: 16px;
+        }
+        @media (max-width: 600px) {
+            .stats-row { grid-template-columns: 1fr; }
         }
         .stat-card {
             background: var(--card);
             border: 1px solid var(--border);
             border-radius: 6px;
             padding: 12px;
+            text-align: center;
         }
         .stat-label { color: var(--muted); font-size: 0.75em; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
         .stat-value { font-size: 1.5em; font-weight: bold; font-family: monospace; }
         .stat-value.green { color: var(--green); }
         .stat-value.red { color: var(--red); }
         .stat-value.yellow { color: var(--yellow); }
-        .stat-row { display: flex; justify-content: space-between; margin-top: 8px; font-size: 0.85em; }
-        .stat-row .label { color: var(--muted); }
+        .stat-sub { font-size: 0.8em; color: var(--muted); margin-top: 4px; }
 
         .section { margin-bottom: 16px; }
         .section-title {
@@ -65,18 +130,8 @@
             letter-spacing: 0.5px;
             color: var(--muted);
             margin-bottom: 8px;
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-        .section-title::after {
-            content: '';
-            flex: 1;
-            height: 1px;
-            background: var(--border);
         }
 
-        /* Quote table */
         .quote-table {
             width: 100%;
             border-collapse: collapse;
@@ -141,45 +196,92 @@
             font-size: 0.85em;
         }
         .btn:hover { background: var(--border); }
+
+        .route-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            background: rgba(163, 113, 247, 0.1);
+            border: 1px solid var(--purple);
+            color: var(--purple);
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.8em;
+            font-weight: 500;
+        }
     </style>
 </head>
 <body>
     <div class="header">
         <h1>Solver Dashboard</h1>
         <div style="display: flex; gap: 8px; align-items: center;">
+            <span class="route-badge" id="route-badge">Loading...</span>
             <span id="status" class="status">...</span>
-            <a href="/api/export/trades.csv" class="btn">Export CSV</a>
+            <a href="/api/export/trades.csv" class="btn">CSV</a>
+        </div>
+    </div>
+
+    <div class="grid-2">
+        <!-- NEAR Intents Balances -->
+        <div class="card">
+            <div class="card-title">
+                <span class="icon">⚡</span>
+                NEAR Intents Balance
+            </div>
+            <div class="balance-row">
+                <div class="balance-label">
+                    <span class="token" id="btc-symbol">BTC</span>
+                    <span class="chain" id="btc-chain">NEAR</span>
+                </div>
+                <div class="balance-value" id="near-btc">-</div>
+            </div>
+            <div class="balance-row">
+                <div class="balance-label">
+                    <span class="token">USDT</span>
+                    <span class="chain">ETH Bridge</span>
+                </div>
+                <div class="balance-value" id="near-usdt">-</div>
+            </div>
+        </div>
+
+        <!-- Hyperliquid Positions -->
+        <div class="card">
+            <div class="card-title">
+                <span class="icon">📊</span>
+                Hyperliquid
+            </div>
+            <div class="balance-row">
+                <div class="balance-label">
+                    <span class="token">BTC Perp</span>
+                    <span class="chain">Position</span>
+                </div>
+                <div class="balance-value" id="hl-perp">-</div>
+            </div>
+            <div class="balance-row">
+                <div class="balance-label">
+                    <span class="token">Margin</span>
+                    <span class="chain">Available</span>
+                </div>
+                <div class="balance-value" id="hl-margin">-</div>
+            </div>
         </div>
     </div>
 
     <div class="stats-row">
         <div class="stat-card">
-            <div class="stat-label">Win Rate (24h)</div>
-            <div class="stat-value" id="win-rate">-</div>
-            <div class="stat-row">
-                <span><span class="label">Won:</span> <span id="won-count">0</span></span>
-                <span><span class="label">Lost:</span> <span id="lost-count">0</span></span>
-            </div>
-        </div>
-        <div class="stat-card">
             <div class="stat-label">Net Delta</div>
             <div class="stat-value" id="net-delta">-</div>
-            <div class="stat-row">
-                <span><span class="label">Spot:</span> <span id="spot-btc">-</span></span>
-                <span><span class="label">Perp:</span> <span id="perp-pos">-</span></span>
-            </div>
+            <div class="stat-sub">Spot + Perp</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Win Rate (24h)</div>
+            <div class="stat-value" id="win-rate">-</div>
+            <div class="stat-sub"><span id="won-count">0</span> won / <span id="lost-count">0</span> lost</div>
         </div>
         <div class="stat-card">
             <div class="stat-label">Volume (24h)</div>
             <div class="stat-value" id="volume">-</div>
-            <div class="stat-row">
-                <span><span class="label">Hedges:</span> <span id="hedges">0</span></span>
-                <span><span class="label">Failures:</span> <span id="failures" style="color: var(--red);">0</span></span>
-            </div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-label">USDT Balance</div>
-            <div class="stat-value" id="spot-usdt">-</div>
+            <div class="stat-sub"><span id="hedges">0</span> hedges</div>
         </div>
     </div>
 
@@ -225,6 +327,13 @@
             return { text: type, class: '' };
         }
 
+        function getChainFromTokenId(tokenId) {
+            if (tokenId.startsWith('base-')) return 'Base';
+            if (tokenId.startsWith('eth-')) return 'Ethereum';
+            if (tokenId === 'btc.omft.near') return 'Native';
+            return 'NEAR';
+        }
+
         async function fetchData() {
             try {
                 // Health
@@ -242,14 +351,33 @@
                 const posRes = await fetch('/api/positions');
                 if (posRes.ok) {
                     const pos = await posRes.json();
-                    document.getElementById('spot-btc').textContent = pos.spotBtc.toFixed(6);
-                    document.getElementById('spot-usdt').textContent = '$' + pos.spotUsdt.toFixed(2);
-                    document.getElementById('perp-pos').textContent = pos.perpPosition.toFixed(6);
 
+                    // Route badge
+                    const btcSymbol = pos.nearIntents?.btcSymbol || 'BTC';
+                    document.getElementById('route-badge').textContent = btcSymbol + ' ↔ USDT';
+
+                    // NEAR Intents
+                    document.getElementById('btc-symbol').textContent = btcSymbol;
+                    document.getElementById('btc-chain').textContent = getChainFromTokenId(pos.nearIntents?.btcTokenId || '');
+                    document.getElementById('near-btc').textContent = (pos.nearIntents?.btc || pos.spotBtc || 0).toFixed(8);
+                    document.getElementById('near-usdt').textContent = '$' + (pos.nearIntents?.usdt || pos.spotUsdt || 0).toFixed(2);
+
+                    // Hyperliquid
+                    const perpPos = pos.hyperliquid?.perpPosition ?? pos.perpPosition ?? 0;
+                    const hlPerpEl = document.getElementById('hl-perp');
+                    hlPerpEl.textContent = perpPos.toFixed(8);
+                    hlPerpEl.className = 'balance-value ' + (perpPos < 0 ? 'red' : perpPos > 0 ? 'green' : '');
+
+                    document.getElementById('hl-margin').textContent = '$' + (pos.hyperliquid?.availableMargin ?? pos.availableMargin ?? 0).toFixed(2);
+
+                    // Net Delta
                     const deltaEl = document.getElementById('net-delta');
-                    deltaEl.textContent = pos.netDelta.toFixed(6);
-                    if (Math.abs(pos.netDelta) > 0.001) {
+                    const delta = pos.netDelta ?? 0;
+                    deltaEl.textContent = delta.toFixed(8);
+                    if (Math.abs(delta) > 0.001) {
                         deltaEl.className = 'stat-value red';
+                    } else if (Math.abs(delta) > 0.0001) {
+                        deltaEl.className = 'stat-value yellow';
                     } else {
                         deltaEl.className = 'stat-value green';
                     }
@@ -267,27 +395,20 @@
 
                     document.getElementById('won-count').textContent = stats.quotesPublished || 0;
                     document.getElementById('lost-count').textContent = stats.quotesRejected || 0;
-                    document.getElementById('volume').textContent = (stats.volumeBtc || 0).toFixed(6) + ' BTC';
+                    document.getElementById('volume').textContent = (stats.volumeBtc || 0).toFixed(6);
                     document.getElementById('hedges').textContent = stats.hedgesExecuted || 0;
-                    document.getElementById('failures').textContent = stats.failures || 0;
                 }
 
-                // Quotes - filter to only actionable events (not QUOTE_GENERATED)
+                // Quotes
                 const tradesRes = await fetch('/api/trades?limit=100');
                 if (tradesRes.ok) {
                     const trades = await tradesRes.json();
-
-                    // Filter: only show PUBLISHED, REJECTED, HEDGE_EXECUTED, EXPIRED, FAILED
-                    // Skip QUOTE_GENERATED and SETTLEMENT_DETECTED (intermediate states)
                     const validTypes = ['QUOTE_PUBLISHED', 'QUOTE_REJECTED', 'HEDGE_EXECUTED', 'QUOTE_EXPIRED', 'HEDGE_FAILED'];
 
-                    // Group by nonce, keep only the final state for each
                     const byNonce = new Map();
                     for (const t of trades) {
                         if (!t.nonce || !validTypes.includes(t.type)) continue;
-
                         const existing = byNonce.get(t.nonce);
-                        // Priority: HEDGE_EXECUTED > HEDGE_FAILED > QUOTE_REJECTED > QUOTE_EXPIRED > QUOTE_PUBLISHED
                         const priority = {
                             'HEDGE_EXECUTED': 5,
                             'HEDGE_FAILED': 4,
@@ -295,16 +416,14 @@
                             'QUOTE_EXPIRED': 2,
                             'QUOTE_PUBLISHED': 1
                         };
-
                         if (!existing || priority[t.type] > priority[existing.type]) {
                             byNonce.set(t.nonce, t);
                         }
                     }
 
-                    // Sort by timestamp desc
                     const quotes = Array.from(byNonce.values())
                         .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
-                        .slice(0, 30);
+                        .slice(0, 25);
 
                     const tbody = document.getElementById('quotes-body');
 
@@ -317,7 +436,7 @@
                         const time = new Date(q.timestamp).toLocaleTimeString();
                         const shortId = q.nonce.substring(0, 8);
                         const side = q.direction || '-';
-                        const amount = q.amountBtc ? q.amountBtc.toFixed(6) : '-';
+                        const amount = q.amountBtc ? q.amountBtc.toFixed(8) : '-';
                         const result = getResult(q);
                         const latency = q.timings?.total;
                         const latencyClass = latency ? getTimingClass(latency) : '';
@@ -327,7 +446,7 @@
                                 <td style="color: var(--muted);">${time}</td>
                                 <td><span class="quote-id">${shortId}</span></td>
                                 <td><span class="badge ${side}">${side.toUpperCase()}</span></td>
-                                <td class="amount">${amount} BTC</td>
+                                <td class="amount">${amount}</td>
                                 <td><span class="badge ${result.class}">${result.text}</span></td>
                                 <td style="text-align: right;" class="timing ${latencyClass}">${latency ? latency + 'ms' : '-'}</td>
                             </tr>

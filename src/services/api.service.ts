@@ -46,23 +46,45 @@ export class ApiService {
                 const perpPos = await this.hlService.getBtcPosition();
                 const availableMargin = await this.hlService.getAvailableMargin();
 
-                // Assuming margin info isn't easily available in current HL service, 
-                // we'll just return what we have.
-                // Todo: Add getMargin() to HL service if needed.
-
                 const netDelta = spotBtc + perpPos;
 
+                // Parse token symbols from token IDs
+                const btcTokenId = BTC_ONLY_CONFIG.BTC_TOKEN_ID;
+                const usdtTokenId = BTC_ONLY_CONFIG.USDT_TOKEN_ID;
+
+                // Extract readable names
+                let btcSymbol = 'BTC';
+                if (btcTokenId.includes('cbbtc') || btcTokenId.includes('cbb7c0000ab88b473b1f5afd9ef808440eed33bf')) {
+                    btcSymbol = 'cbBTC';
+                } else if (btcTokenId.includes('2260fac5e5542a773aa44fbcfedf7c193bc2c599')) {
+                    btcSymbol = 'wBTC';
+                } else if (btcTokenId === 'btc.omft.near') {
+                    btcSymbol = 'BTC';
+                }
+
                 const snapshot = {
+                    // NEAR Intents balances
+                    nearIntents: {
+                        btc: spotBtc,
+                        btcSymbol,
+                        btcTokenId,
+                        usdt: spotUsdt,
+                        usdtTokenId
+                    },
+                    // Hyperliquid positions
+                    hyperliquid: {
+                        perpPosition: perpPos,
+                        availableMargin
+                    },
+                    // Computed
+                    netDelta,
+                    // Legacy fields for backwards compat
                     spotBtc,
                     spotUsdt,
                     perpPosition: perpPos,
-                    netDelta,
                     availableMargin,
                     timestamp: new Date().toISOString()
                 };
-
-                // Log snapshot asynchronously? Or just return it.
-                // The CronService logs it periodically, so maybe we don't need to log every API call.
 
                 res.json(snapshot);
             } catch (e) {
