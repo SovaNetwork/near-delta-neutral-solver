@@ -3,15 +3,22 @@ import * as path from 'path';
 
 export interface TradeEvent {
     timestamp: string;
-    type: 'QUOTE_GENERATED' | 'QUOTE_PUBLISHED' | 'SETTLEMENT_DETECTED' | 'HEDGE_EXECUTED' | 'HEDGE_FAILED' | 'QUOTE_EXPIRED';
+    type: 'QUOTE_GENERATED' | 'QUOTE_PUBLISHED' | 'QUOTE_REJECTED' | 'SETTLEMENT_DETECTED' | 'HEDGE_EXECUTED' | 'HEDGE_FAILED' | 'QUOTE_EXPIRED';
     nonce?: string;
     direction?: 'buy' | 'sell' | 'long' | 'short';
     amountBtc?: number;
     amountUsdt?: number;
     quotedPrice?: number;
     executionPrice?: number;
+    reason?: string;
+    timings?: { quote: number; sign: number; post: number; total: number };
     error?: string;
     [key: string]: any;
+}
+
+// Helper to create short quote IDs for readable logs
+export function shortId(nonce: string): string {
+    return nonce.slice(0, 8);
 }
 
 export interface PositionSnapshot {
@@ -100,8 +107,14 @@ export class LoggerService {
 
         const recentTrades = trades.filter(t => new Date(t.timestamp).getTime() > cutoff);
 
+        const published = recentTrades.filter(t => t.type === 'QUOTE_PUBLISHED').length;
+        const rejected = recentTrades.filter(t => t.type === 'QUOTE_REJECTED').length;
+
         return {
             quotesGenerated: recentTrades.filter(t => t.type === 'QUOTE_GENERATED').length,
+            quotesPublished: published,
+            quotesRejected: rejected,
+            winRate: published + rejected > 0 ? ((published / (published + rejected)) * 100).toFixed(1) + '%' : 'N/A',
             hedgesExecuted: recentTrades.filter(t => t.type === 'HEDGE_EXECUTED').length,
             failures: recentTrades.filter(t => t.type === 'HEDGE_FAILED').length,
             volumeBtc: recentTrades

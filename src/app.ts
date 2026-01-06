@@ -4,7 +4,7 @@ import { InventoryStateService } from './services/inventory-manager.service';
 import { QuoterService } from './services/quoter.service';
 import { HedgerService } from './services/hedger.service';
 import { CronService } from './services/cron.service';
-import { LoggerService } from './services/logger.service';
+import { LoggerService, shortId } from './services/logger.service';
 import { ApiService } from './services/api.service';
 import { BTC_ONLY_CONFIG } from './configs/btc-only.config';
 import { NEAR_CONFIG } from './configs/near.config';
@@ -242,13 +242,6 @@ async function connectToBusWithRetry(
                     amountBtcForHedge = parseFloat(quote.amount_out) / 1e8;
                 }
 
-                // Track quote for potential settlement (must happen before send)
-                hedgerService.trackQuote(nonce, {
-                    direction: isBuyingBtc ? 'short' : 'long',
-                    amountBtc: amountBtcForHedge,
-                    quoteId: nonce
-                });
-
                 const t4 = performance.now();
                 const quoteHash = serializeIntent(messageStr, recipient, nonce, standard);
                 const signatureData = await nearService.sign(quoteHash);
@@ -307,39 +300,62 @@ async function connectToBusWithRetry(
                         const t6 = performance.now();
 
                         const timings = {
-                            parse: (t1 - t0).toFixed(2),
-                            validate: (t2 - t1).toFixed(2),
-                            getQuote: (t3 - t2).toFixed(2),
-                            sign: (t5 - t4).toFixed(2),
-                            post: (t6 - t5).toFixed(2),
-                            total: (t6 - t0).toFixed(2)
+                            quote: parseFloat((t3 - t2).toFixed(2)),
+                            sign: parseFloat((t5 - t4).toFixed(2)),
+                            post: parseFloat((t6 - t5).toFixed(2)),
+                            total: parseFloat((t6 - t0).toFixed(2))
                         };
-                        console.log(`✅ Quote Published | ${isBuyingBtc ? 'BUY' : 'SELL'} ${amountInFloat.toFixed(6)} → ${amountOutFloat.toFixed(6)} | ⏱️ ${timings.total}ms (quote:${timings.getQuote}ms sign:${timings.sign}ms post:${timings.post}ms)`);
+
+                        // Track quote for settlement ONLY after successful publish
+                        hedgerService.trackQuote(nonce, {
+                            direction: isBuyingBtc ? 'short' : 'long',
+                            amountBtc: amountBtcForHedge,
+                            quoteId: nonce
+                        });
+
+                        console.log(`✅ [${shortId(nonce)}] PUBLISHED | ${isBuyingBtc ? 'BUY' : 'SELL'} ${amountInFloat.toFixed(6)} → ${amountOutFloat.toFixed(6)} | ${timings.total}ms`);
 
                         logger.logTrade({
                             type: 'QUOTE_PUBLISHED',
                             nonce,
                             direction: isBuyingBtc ? 'buy' : 'sell',
                             amountBtc: amountBtcForHedge,
-                            quotedPrice: 0
+                            timings
                         });
                     } catch (relayErr: any) {
                         const t6 = performance.now();
                         const timings = {
-                            parse: (t1 - t0).toFixed(2),
-                            validate: (t2 - t1).toFixed(2),
-                            getQuote: (t3 - t2).toFixed(2),
-                            sign: (t5 - t4).toFixed(2),
-                            post: (t6 - t5).toFixed(2),
-                            total: (t6 - t0).toFixed(2)
+                            quote: parseFloat((t3 - t2).toFixed(2)),
+                            sign: parseFloat((t5 - t4).toFixed(2)),
+                            post: parseFloat((t6 - t5).toFixed(2)),
+                            total: parseFloat((t6 - t0).toFixed(2))
                         };
 
                         // Check if this is "another solver won" error
                         const errorMessage = relayErr?.message || String(relayErr);
                         if (errorMessage.includes('-32098') || errorMessage.includes('not found or already finished')) {
-                            console.log(`⏱️  Quote too late (other solver won) | ${isBuyingBtc ? 'BUY' : 'SELL'} ${amountInFloat.toFixed(6)} → ${amountOutFloat.toFixed(6)} | ⏱️ ${timings.total}ms (quote:${timings.getQuote}ms sign:${timings.sign}ms post:${timings.post}ms)`);
+                            console.log(`❌ [${shortId(nonce)}] REJECTED (solver lost) | ${isBuyingBtc ? 'BUY' : 'SELL'} ${amountInFloat.toFixed(6)} → ${amountOutFloat.toFixed(6)} | ${timings.total}ms (post: ${timings.post}ms)`);
+
+                            logger.logTrade({
+                                type: 'QUOTE_REJECTED',
+                                nonce,
+                                direction: isBuyingBtc ? 'buy' : 'sell',
+                                amountBtc: amountBtcForHedge,
+                                reason: 'solver_lost',
+                                timings
+                            });
                         } else {
-                            console.error("Failed to publish quote:", relayErr);
+                            console.error(`❌ [${shortId(nonce)}] FAILED:`, relayErr);
+
+                            logger.logTrade({
+                                type: 'QUOTE_REJECTED',
+                                nonce,
+                                direction: isBuyingBtc ? 'buy' : 'sell',
+                                amountBtc: amountBtcForHedge,
+                                reason: 'error',
+                                error: errorMessage,
+                                timings
+                            });
                         }
                     }
 

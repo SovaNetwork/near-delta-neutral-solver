@@ -1,6 +1,7 @@
 import { NearService } from './near.service';
 import { HyperliquidService } from './hyperliquid.service';
 import { NEAR_CONFIG } from '../configs/near.config';
+import { LoggerService, shortId } from './logger.service';
 
 interface QuoteData {
     direction: 'short' | 'long'; // If we bought BTC, we execute 'short'.
@@ -8,8 +9,6 @@ interface QuoteData {
     quoteId: string;
     timestamp: number;
 }
-
-import { LoggerService } from './logger.service';
 
 export class HedgerService {
     private pendingQuotes = new Map<string, QuoteData>(); // nonce -> data
@@ -33,7 +32,11 @@ export class HedgerService {
 
     trackQuote(nonce: string, data: Omit<QuoteData, 'timestamp'>) {
         this.pendingQuotes.set(nonce, { ...data, timestamp: Date.now() });
-        console.log(`Tracking Quote ${nonce} for settlement...`);
+        console.log(`🔄 [${shortId(nonce)}] TRACKING | awaiting settlement...`);
+    }
+
+    removeQuote(nonce: string) {
+        this.pendingQuotes.delete(nonce);
     }
 
     private async poll() {
@@ -45,7 +48,7 @@ export class HedgerService {
             const now = Date.now();
             for (const [nonce, data] of this.pendingQuotes.entries()) {
                 if (data.timestamp && now - data.timestamp > 300000) { // 5 mins
-                    console.log(`Quote ${nonce} expired.`);
+                    console.log(`⏰ [${shortId(nonce)}] EXPIRED | no settlement after 5min`);
                     this.pendingQuotes.delete(nonce);
                     this.logger.logTrade({
                         type: 'QUOTE_EXPIRED',
@@ -91,13 +94,13 @@ export class HedgerService {
             // Process all used nonces
             for (const { nonce, data, isUsed } of nonceResults) {
                 if (isUsed) {
-                    console.log(`Settlement Detected for nonce ${nonce}! Executing Hedge...`);
+                    console.log(`💰 [${shortId(nonce)}] SETTLED | executing hedge...`);
                     this.pendingQuotes.delete(nonce);
 
                     if (data) {
                         try {
                             const result = await this.hlService.executeHedge(data.direction, data.amountBtc);
-                            console.log(`Hedge Completed for ${nonce}`);
+                            console.log(`✅ [${shortId(nonce)}] HEDGED | ${data.direction} ${data.amountBtc.toFixed(6)} BTC`);
 
                             // Parse result for price
                             let execPx = 0;
@@ -118,8 +121,8 @@ export class HedgerService {
                             });
 
                         } catch (hedgeErr) {
-                            console.error(`[ALERT] HIGH PRIORITY: Failed to hedge ${nonce}:`, hedgeErr);
-                            console.error(`[ALERT] Drift Impact: ${data.direction} ${data.amountBtc} BTC unhedged. Manual intervention required.`);
+                            console.error(`🚨 [${shortId(nonce)}] HEDGE FAILED | ${data.direction} ${data.amountBtc.toFixed(6)} BTC`, hedgeErr);
+                            console.error(`🚨 MANUAL INTERVENTION REQUIRED - unhedged position!`);
 
                             this.logger.logTrade({
                                 type: 'HEDGE_FAILED',

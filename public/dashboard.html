@@ -14,6 +14,8 @@
             --accent-green: #238636;
             --accent-red: #da3633;
             --accent-blue: #58a6ff;
+            --accent-yellow: #d29922;
+            --accent-purple: #8957e5;
         }
 
         body {
@@ -25,7 +27,7 @@
         }
 
         .container {
-            max-width: 1200px;
+            max-width: 1400px;
             margin: 0 auto;
         }
 
@@ -40,31 +42,41 @@
 
         .grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 20px;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 16px;
             margin-bottom: 20px;
+        }
+
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+
+        @media (max-width: 900px) {
+            .grid-2 { grid-template-columns: 1fr; }
         }
 
         .card {
             background-color: var(--card-bg);
             border: 1px solid var(--border-color);
             border-radius: 6px;
-            padding: 20px;
+            padding: 16px;
         }
 
         .card h2 {
-            margin-top: 0;
-            font-size: 1.2em;
+            margin: 0 0 12px 0;
+            font-size: 0.85em;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
             color: var(--text-secondary);
-            border-bottom: 1px solid var(--border-color);
-            padding-bottom: 10px;
-            margin-bottom: 15px;
         }
 
         .metric {
             display: flex;
             justify-content: space-between;
-            margin-bottom: 10px;
+            margin-bottom: 8px;
         }
 
         .metric label {
@@ -76,35 +88,111 @@
             font-weight: bold;
         }
 
+        .big-value {
+            font-size: 2em;
+            font-weight: bold;
+            font-family: monospace;
+        }
+
         .status-ok { color: var(--accent-green); }
-        .status-warn { color: #d29922; }
+        .status-warn { color: var(--accent-yellow); }
         .status-error { color: var(--accent-red); }
 
-        table {
-            width: 100%;
-            border-collapse: collapse;
+        /* Event badges */
+        .badge {
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 0.75em;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+        .badge-PUBLISHED { background: var(--accent-green); color: white; }
+        .badge-REJECTED { background: var(--accent-red); color: white; }
+        .badge-TRACKING { background: var(--accent-blue); color: white; }
+        .badge-SETTLED { background: var(--accent-purple); color: white; }
+        .badge-HEDGED { background: #238636; color: white; }
+        .badge-EXPIRED { background: var(--accent-yellow); color: black; }
+        .badge-FAILED { background: #da3633; color: white; }
+        .badge-short { background: #f85149; color: white; }
+        .badge-long { background: #3fb950; color: white; }
+        .badge-buy { background: #3fb950; color: white; }
+        .badge-sell { background: #f85149; color: white; }
+
+        /* Activity feed */
+        .activity-feed {
+            max-height: 500px;
+            overflow-y: auto;
+        }
+
+        .activity-item {
+            display: grid;
+            grid-template-columns: 70px 90px 70px 1fr auto;
+            gap: 12px;
+            padding: 10px 0;
+            border-bottom: 1px solid var(--border-color);
+            align-items: center;
             font-size: 0.9em;
         }
 
-        th, td {
-            text-align: left;
-            padding: 8px;
+        .activity-item:last-child {
+            border-bottom: none;
+        }
+
+        .activity-time {
+            color: var(--text-secondary);
+            font-family: monospace;
+            font-size: 0.85em;
+        }
+
+        .activity-id {
+            font-family: monospace;
+            color: var(--accent-blue);
+            font-size: 0.85em;
+        }
+
+        .activity-details {
+            color: var(--text-secondary);
+            font-size: 0.85em;
+        }
+
+        .activity-timing {
+            font-family: monospace;
+            font-size: 0.8em;
+            color: var(--text-secondary);
+            text-align: right;
+        }
+
+        .timing-fast { color: var(--accent-green); }
+        .timing-slow { color: var(--accent-yellow); }
+        .timing-very-slow { color: var(--accent-red); }
+
+        /* Pending quotes */
+        .pending-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 0;
             border-bottom: 1px solid var(--border-color);
         }
 
-        th {
-            color: var(--text-secondary);
+        .pending-item:last-child {
+            border-bottom: none;
         }
 
-        .badge {
-            padding: 2px 6px;
+        .win-rate-bar {
+            height: 8px;
+            background: var(--border-color);
             border-radius: 4px;
-            font-size: 0.8em;
-            font-weight: bold;
+            overflow: hidden;
+            margin-top: 8px;
         }
-        .badge-QUOTE_GENERATED { background: #1f6feb; color: white; }
-        .badge-HEDGE_EXECUTED { background: #238636; color: white; }
-        .badge-HEDGE_FAILED { background: #da3633; color: white; }
+
+        .win-rate-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent-green), var(--accent-blue));
+            transition: width 0.3s ease;
+        }
 
         .btn {
             background-color: var(--card-bg);
@@ -118,6 +206,20 @@
         }
         .btn:hover {
             background-color: var(--border-color);
+        }
+
+        .legend {
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+            margin-bottom: 12px;
+            font-size: 0.8em;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
         }
     </style>
 </head>
@@ -134,56 +236,114 @@
         <div class="grid">
             <div class="card">
                 <h2>Positions</h2>
-                <div class="metric"><label>Spot BTC:</label> <span id="spot-btc" class="value">-</span></div>
-                <div class="metric"><label>Spot USDT:</label> <span id="spot-usdt" class="value">-</span></div>
-                <div class="metric"><label>Perp Position:</label> <span id="perp-pos" class="value">-</span></div>
-                <div class="metric"><label>Net Delta:</label> <span id="net-delta" class="value">-</span></div>
-                <div class="metric"><label>Min Trade Size:</label> <span class="value">0.0001 BTC</span></div>
-                <div class="metric"><label>Max Inv:</label> <span class="value">5.0 BTC</span></div>
+                <div class="metric"><label>Spot BTC</label> <span id="spot-btc" class="value">-</span></div>
+                <div class="metric"><label>Spot USDT</label> <span id="spot-usdt" class="value">-</span></div>
+                <div class="metric"><label>Perp Position</label> <span id="perp-pos" class="value">-</span></div>
+                <div class="metric" style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-color);">
+                    <label>Net Delta</label>
+                    <span id="net-delta" class="value">-</span>
+                </div>
             </div>
 
             <div class="card">
-                <h2>24h Stats</h2>
-                <div class="metric"><label>Quotes Generated:</label> <span id="stats-quotes" class="value">-</span></div>
-                <div class="metric"><label>Hedges Executed:</label> <span id="stats-hedges" class="value">-</span></div>
-                <div class="metric"><label>Volume (BTC):</label> <span id="stats-volume" class="value">-</span></div>
-                <div class="metric"><label>Failures:</label> <span id="stats-failures" class="value status-error">-</span></div>
+                <h2>Quote Performance (24h)</h2>
+                <div style="display: flex; justify-content: space-between; align-items: flex-end;">
+                    <div>
+                        <div class="big-value status-ok" id="win-rate">-</div>
+                        <div style="color: var(--text-secondary); font-size: 0.85em;">Win Rate</div>
+                    </div>
+                    <div style="text-align: right;">
+                        <div><span class="value status-ok" id="stats-published">-</span> <span style="color: var(--text-secondary);">won</span></div>
+                        <div><span class="value status-error" id="stats-rejected">-</span> <span style="color: var(--text-secondary);">lost</span></div>
+                    </div>
+                </div>
+                <div class="win-rate-bar">
+                    <div class="win-rate-fill" id="win-rate-bar" style="width: 0%"></div>
+                </div>
             </div>
-            
+
+            <div class="card">
+                <h2>Hedging (24h)</h2>
+                <div class="metric"><label>Hedges Executed</label> <span id="stats-hedges" class="value">-</span></div>
+                <div class="metric"><label>Volume</label> <span id="stats-volume" class="value">-</span></div>
+                <div class="metric"><label>Failures</label> <span id="stats-failures" class="value status-error">-</span></div>
+            </div>
+
             <div class="card">
                 <h2>Pending Quotes</h2>
-                <div id="pending-list" style="max-height: 150px; overflow-y: auto;">
+                <div id="pending-list" style="max-height: 120px; overflow-y: auto;">
                     <div style="color: var(--text-secondary); font-style: italic;">None</div>
                 </div>
             </div>
         </div>
 
         <div class="card">
-            <h2>Recent Activity</h2>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Time</th>
-                        <th>Type</th>
-                        <th>Nonce</th>
-                        <th>Direction</th>
-                        <th>Amount</th>
-                        <th>Details</th>
-                    </tr>
-                </thead>
-                <tbody id="trades-body">
-                </tbody>
-            </table>
+            <h2>Activity Feed</h2>
+            <div class="legend">
+                <div class="legend-item"><span class="badge badge-PUBLISHED">Published</span> Quote accepted</div>
+                <div class="legend-item"><span class="badge badge-REJECTED">Rejected</span> Another solver won</div>
+                <div class="legend-item"><span class="badge badge-SETTLED">Settled</span> User took quote</div>
+                <div class="legend-item"><span class="badge badge-HEDGED">Hedged</span> Position hedged</div>
+                <div class="legend-item"><span class="badge badge-EXPIRED">Expired</span> No settlement</div>
+                <div class="legend-item"><span class="badge badge-FAILED">Failed</span> Hedge failed</div>
+            </div>
+            <div class="activity-feed" id="activity-feed">
+                <div style="color: var(--text-secondary); padding: 20px; text-align: center;">Loading...</div>
+            </div>
         </div>
     </div>
 
     <script>
+        function formatEventType(type) {
+            const map = {
+                'QUOTE_PUBLISHED': 'PUBLISHED',
+                'QUOTE_REJECTED': 'REJECTED',
+                'QUOTE_EXPIRED': 'EXPIRED',
+                'SETTLEMENT_DETECTED': 'SETTLED',
+                'HEDGE_EXECUTED': 'HEDGED',
+                'HEDGE_FAILED': 'FAILED'
+            };
+            return map[type] || type;
+        }
+
+        function getTimingClass(ms) {
+            if (ms < 100) return 'timing-fast';
+            if (ms < 200) return 'timing-slow';
+            return 'timing-very-slow';
+        }
+
+        function formatTiming(trade) {
+            if (trade.timings && trade.timings.total) {
+                const total = trade.timings.total;
+                const cls = getTimingClass(total);
+                return `<span class="${cls}">${total}ms</span>`;
+            }
+            return '';
+        }
+
+        function formatDetails(trade) {
+            const parts = [];
+
+            if (trade.amountBtc) {
+                parts.push(`${trade.amountBtc.toFixed(6)} BTC`);
+            }
+
+            if (trade.reason === 'solver_lost') {
+                parts.push('(solver lost)');
+            } else if (trade.error) {
+                parts.push(`Error: ${trade.error.substring(0, 30)}...`);
+            } else if (trade.executionPrice) {
+                parts.push(`@ $${trade.executionPrice.toFixed(2)}`);
+            }
+
+            return parts.join(' ');
+        }
+
         async function fetchData() {
             try {
                 // 1. Health
                 const healthRes = await fetch('/health');
                 if (healthRes.ok) {
-                    const health = await healthRes.json();
                     const el = document.getElementById('health-status');
                     el.textContent = 'ONLINE';
                     el.style.backgroundColor = 'var(--accent-green)';
@@ -196,7 +356,7 @@
                     document.getElementById('spot-btc').textContent = pos.spotBtc.toFixed(8);
                     document.getElementById('spot-usdt').textContent = pos.spotUsdt.toFixed(2);
                     document.getElementById('perp-pos').textContent = pos.perpPosition.toFixed(8);
-                    
+
                     const deltaEl = document.getElementById('net-delta');
                     deltaEl.textContent = pos.netDelta.toFixed(8);
                     if (Math.abs(pos.netDelta) > 0.001) {
@@ -210,9 +370,26 @@
                 const statsRes = await fetch('/api/stats');
                 if (statsRes.ok) {
                     const stats = await statsRes.json();
-                    document.getElementById('stats-quotes').textContent = stats.quotesGenerated;
+
+                    // Win rate display
+                    const winRateEl = document.getElementById('win-rate');
+                    winRateEl.textContent = stats.winRate || '0%';
+
+                    const winRateNum = parseFloat(stats.winRate) || 0;
+                    document.getElementById('win-rate-bar').style.width = winRateNum + '%';
+
+                    if (winRateNum >= 50) {
+                        winRateEl.className = 'big-value status-ok';
+                    } else if (winRateNum >= 20) {
+                        winRateEl.className = 'big-value status-warn';
+                    } else {
+                        winRateEl.className = 'big-value status-error';
+                    }
+
+                    document.getElementById('stats-published').textContent = stats.quotesPublished || 0;
+                    document.getElementById('stats-rejected').textContent = stats.quotesRejected || 0;
                     document.getElementById('stats-hedges').textContent = stats.hedgesExecuted;
-                    document.getElementById('stats-volume').textContent = stats.volumeBtc.toFixed(4);
+                    document.getElementById('stats-volume').textContent = stats.volumeBtc.toFixed(6) + ' BTC';
                     document.getElementById('stats-failures').textContent = stats.failures;
                 }
 
@@ -222,33 +399,46 @@
                     const pending = await pendingRes.json();
                     const list = document.getElementById('pending-list');
                     if (pending.length === 0) {
-                        list.innerHTML = '<div style="color: var(--text-secondary); font-style: italic;">None</div>';
+                        list.innerHTML = '<div style="color: var(--text-secondary); font-style: italic;">No quotes awaiting settlement</div>';
                     } else {
                         list.innerHTML = pending.map(p => `
-                            <div style="margin-bottom: 5px; font-size: 0.9em;">
-                                <span class="badge" style="background: #8b949e">${p.direction}</span>
-                                <b>${p.amountBtc} BTC</b>
-                                <span style="font-family: monospace; font-size: 0.8em; color: var(--text-secondary)">${p.nonce.substring(0,8)}...</span>
+                            <div class="pending-item">
+                                <span class="badge badge-${p.direction}">${p.direction}</span>
+                                <span class="value">${p.amountBtc.toFixed(6)} BTC</span>
+                                <span class="activity-id">${p.nonce.substring(0,8)}</span>
                             </div>
                         `).join('');
                     }
                 }
 
-                // 5. Recent Trades
-                const tradesRes = await fetch('/api/trades?limit=20');
+                // 5. Activity Feed
+                const tradesRes = await fetch('/api/trades?limit=50');
                 if (tradesRes.ok) {
                     const trades = await tradesRes.json();
-                    const tbody = document.getElementById('trades-body');
-                    tbody.innerHTML = trades.reverse().map(t => `
-                        <tr>
-                            <td>${new Date(t.timestamp).toLocaleTimeString()}</td>
-                            <td><span class="badge badge-${t.type}">${t.type.split('_')[0]}</span></td>
-                            <td style="font-family: monospace">${t.nonce ? t.nonce.substring(0,8) + '...' : '-'}</td>
-                            <td>${t.direction || '-'}</td>
-                            <td>${t.amountBtc ? t.amountBtc.toFixed(8) + ' BTC' : (t.amountUsdt ? t.amountUsdt.toFixed(2) + ' USDT' : '-')}</td>
-                            <td style="color: var(--text-secondary)">${t.error || t.quotedPrice || ''}</td>
-                        </tr>
-                    `).join('');
+                    const feed = document.getElementById('activity-feed');
+
+                    if (trades.length === 0) {
+                        feed.innerHTML = '<div style="color: var(--text-secondary); padding: 20px; text-align: center;">No activity yet</div>';
+                    } else {
+                        feed.innerHTML = trades.reverse().map(t => {
+                            const eventType = formatEventType(t.type);
+                            const time = new Date(t.timestamp).toLocaleTimeString();
+                            const shortNonce = t.nonce ? t.nonce.substring(0, 8) : '-';
+                            const direction = t.direction ? `<span class="badge badge-${t.direction}">${t.direction}</span>` : '';
+                            const details = formatDetails(t);
+                            const timing = formatTiming(t);
+
+                            return `
+                                <div class="activity-item">
+                                    <span class="activity-time">${time}</span>
+                                    <span class="badge badge-${eventType}">${eventType}</span>
+                                    <span class="activity-id">${shortNonce}</span>
+                                    <span class="activity-details">${direction} ${details}</span>
+                                    <span class="activity-timing">${timing}</span>
+                                </div>
+                            `;
+                        }).join('');
+                    }
                 }
 
             } catch (e) {
@@ -261,8 +451,8 @@
 
         // Initial load
         fetchData();
-        // Poll
-        setInterval(fetchData, 5000);
+        // Poll every 3 seconds
+        setInterval(fetchData, 3000);
     </script>
 </body>
 </html>
