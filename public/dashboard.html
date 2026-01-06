@@ -45,8 +45,17 @@
             gap: 16px;
             margin-bottom: 16px;
         }
-        @media (max-width: 800px) {
-            .grid-2 { grid-template-columns: 1fr; }
+        .grid-3 {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+        @media (max-width: 900px) {
+            .grid-3 { grid-template-columns: 1fr 1fr; }
+        }
+        @media (max-width: 600px) {
+            .grid-2, .grid-3 { grid-template-columns: 1fr; }
         }
 
         .card {
@@ -209,6 +218,28 @@
             font-size: 0.8em;
             font-weight: 500;
         }
+
+        .config-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+        .config-item {
+            display: flex;
+            flex-direction: column;
+            padding: 6px 0;
+        }
+        .config-label {
+            font-size: 0.7em;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+        .config-value {
+            font-family: monospace;
+            font-size: 0.9em;
+            color: var(--text);
+        }
     </style>
 </head>
 <body>
@@ -221,7 +252,7 @@
         </div>
     </div>
 
-    <div class="grid-2">
+    <div class="grid-3">
         <!-- NEAR Intents Balances -->
         <div class="card">
             <div class="card-title">
@@ -263,6 +294,40 @@
                     <span class="chain">Available</span>
                 </div>
                 <div class="balance-value" id="hl-margin">-</div>
+            </div>
+        </div>
+
+        <!-- Config Limits -->
+        <div class="card">
+            <div class="card-title">
+                <span class="icon">⚙️</span>
+                Limits
+            </div>
+            <div class="config-grid" id="config-limits">
+                <div class="config-item">
+                    <span class="config-label">Trade Size</span>
+                    <span class="config-value" id="cfg-trade-size">-</span>
+                </div>
+                <div class="config-item">
+                    <span class="config-label">Max Inventory</span>
+                    <span class="config-value" id="cfg-max-inv">-</span>
+                </div>
+                <div class="config-item">
+                    <span class="config-label">Min USDT Reserve</span>
+                    <span class="config-value" id="cfg-min-usdt">-</span>
+                </div>
+                <div class="config-item">
+                    <span class="config-label">Spread</span>
+                    <span class="config-value" id="cfg-spread">-</span>
+                </div>
+                <div class="config-item">
+                    <span class="config-label">Min Margin</span>
+                    <span class="config-value" id="cfg-min-margin">-</span>
+                </div>
+                <div class="config-item">
+                    <span class="config-label">Drift Threshold</span>
+                    <span class="config-value" id="cfg-drift">-</span>
+                </div>
             </div>
         </div>
     </div>
@@ -334,8 +399,33 @@
             return 'NEAR';
         }
 
+        let configLoaded = false;
+
+        async function fetchConfig() {
+            if (configLoaded) return;
+            try {
+                const res = await fetch('/api/config');
+                if (res.ok) {
+                    const cfg = await res.json();
+                    document.getElementById('cfg-trade-size').textContent =
+                        `${cfg.minTradeSizeBtc} - ${cfg.maxTradeSizeBtc} BTC`;
+                    document.getElementById('cfg-max-inv').textContent = `${cfg.maxBtcInventory} BTC`;
+                    document.getElementById('cfg-min-usdt').textContent = `$${cfg.minUsdtReserve.toLocaleString()}`;
+                    document.getElementById('cfg-spread').textContent = `${(cfg.targetSpreadBips / 100).toFixed(2)}%`;
+                    document.getElementById('cfg-min-margin').textContent = `$${cfg.minMarginThreshold.toLocaleString()}`;
+                    document.getElementById('cfg-drift').textContent = `${cfg.driftThresholdBtc} BTC`;
+                    configLoaded = true;
+                }
+            } catch (e) {
+                console.error('Failed to load config', e);
+            }
+        }
+
         async function fetchData() {
             try {
+                // Config (only once)
+                fetchConfig();
+
                 // Health
                 const healthRes = await fetch('/health');
                 const statusEl = document.getElementById('status');

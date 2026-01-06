@@ -109,6 +109,20 @@ export class ApiService {
             res.json(this.logger.getStats(hours));
         });
 
+        // Config (expose relevant settings for dashboard)
+        this.app.get('/api/config', (req, res) => {
+            res.json({
+                maxBtcInventory: BTC_ONLY_CONFIG.MAX_BTC_INVENTORY,
+                minUsdtReserve: BTC_ONLY_CONFIG.MIN_USDT_RESERVE,
+                targetSpreadBips: BTC_ONLY_CONFIG.TARGET_SPREAD_BIPS,
+                minMarginThreshold: BTC_ONLY_CONFIG.MIN_MARGIN_THRESHOLD,
+                minHourlyFundingRate: BTC_ONLY_CONFIG.MIN_HOURLY_FUNDING_RATE,
+                driftThresholdBtc: BTC_ONLY_CONFIG.DRIFT_THRESHOLD_BTC,
+                minTradeSizeBtc: BTC_ONLY_CONFIG.MIN_TRADE_SIZE_BTC,
+                maxTradeSizeBtc: BTC_ONLY_CONFIG.MAX_TRADE_SIZE_BTC
+            });
+        });
+
         // Metrics (Prometheus format)
         this.app.get('/metrics', async (req, res) => {
             try {
