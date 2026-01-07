@@ -41,6 +41,20 @@ async function main() {
     if (!process.env.SOLVER_PRIVATE_KEY) throw new Error("Missing SOLVER_PRIVATE_KEY");
     if (!process.env.SOLVER_ID) throw new Error("Missing SOLVER_ID");
 
+    console.log("Config Check:");
+    console.log("  HYPERLIQUID_MAINNET:", process.env.HYPERLIQUID_MAINNET !== 'false' ? 'true (mainnet)' : 'false (testnet)');
+    console.log("  MAX_TRADE_SIZE_BTC:", BTC_ONLY_CONFIG.MAX_TRADE_SIZE_BTC);
+    console.log("  TARGET_SPREAD_BIPS:", BTC_ONLY_CONFIG.TARGET_SPREAD_BIPS);
+    console.log("  HEDGE_SLIPPAGE_BPS:", BTC_ONLY_CONFIG.HEDGE_SLIPPAGE_BPS);
+    console.log("  MAX_ORDERBOOK_AGE_MS:", BTC_ONLY_CONFIG.MAX_ORDERBOOK_AGE_MS);
+
+    if (BTC_ONLY_CONFIG.HEDGE_SLIPPAGE_BPS < 1 || BTC_ONLY_CONFIG.HEDGE_SLIPPAGE_BPS > 500) {
+        throw new Error(`Invalid HEDGE_SLIPPAGE_BPS: ${BTC_ONLY_CONFIG.HEDGE_SLIPPAGE_BPS} (must be 1-500)`);
+    }
+    if (BTC_ONLY_CONFIG.MAX_ORDERBOOK_AGE_MS < 100 || BTC_ONLY_CONFIG.MAX_ORDERBOOK_AGE_MS > 30000) {
+        throw new Error(`Invalid MAX_ORDERBOOK_AGE_MS: ${BTC_ONLY_CONFIG.MAX_ORDERBOOK_AGE_MS} (must be 100-30000)`);
+    }
+
     // 1. Init Services
     const logger = new LoggerService();
     const nearService = new NearService();

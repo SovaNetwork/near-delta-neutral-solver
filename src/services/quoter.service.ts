@@ -39,7 +39,7 @@ export class QuoterService {
 
             const amountInFloat = parseFloat(request.amount_in) / Math.pow(10, decimalsIn);
 
-            // 4. Size Estimation
+            // 4. Size Estimation with early validation
             let btcSize = 0;
 
             if (weAreBuyingBtc) {
@@ -47,6 +47,15 @@ export class QuoterService {
             } else {
                 const probePrice = this.hyperliquidService.getHedgePrice('ask', 0.001);
                 let estimatedSize = amountInFloat / probePrice;
+                
+                // Early size validation before querying full depth
+                if (estimatedSize < BTC_ONLY_CONFIG.MIN_TRADE_SIZE_BTC) {
+                    return undefined;
+                }
+                if (estimatedSize > BTC_ONLY_CONFIG.MAX_TRADE_SIZE_BTC) {
+                    return undefined;
+                }
+                
                 const refinedPrice = this.hyperliquidService.getHedgePrice('ask', estimatedSize);
                 btcSize = amountInFloat / refinedPrice;
             }
