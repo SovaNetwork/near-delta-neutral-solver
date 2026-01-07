@@ -3,492 +3,816 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Solver Dashboard</title>
+    <title>Delta-Neutral Solver</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
-        * { box-sizing: border-box; }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        
         :root {
-            --bg: #0d1117;
-            --card: #161b22;
-            --border: #30363d;
-            --text: #c9d1d9;
-            --muted: #8b949e;
-            --green: #3fb950;
-            --red: #f85149;
-            --blue: #58a6ff;
-            --yellow: #d29922;
-            --purple: #a371f7;
+            --bg-primary: #09090b;
+            --bg-secondary: #18181b;
+            --bg-tertiary: #27272a;
+            --border: #3f3f46;
+            --border-subtle: #27272a;
+            --text-primary: #fafafa;
+            --text-secondary: #a1a1aa;
+            --text-muted: #71717a;
+            --accent-green: #22c55e;
+            --accent-green-dim: rgba(34, 197, 94, 0.15);
+            --accent-red: #ef4444;
+            --accent-red-dim: rgba(239, 68, 68, 0.15);
+            --accent-blue: #3b82f6;
+            --accent-blue-dim: rgba(59, 130, 246, 0.15);
+            --accent-yellow: #eab308;
+            --accent-yellow-dim: rgba(234, 179, 8, 0.15);
+            --accent-purple: #a855f7;
+            --accent-purple-dim: rgba(168, 85, 247, 0.15);
+            --accent-orange: #f97316;
+            --glow-green: 0 0 20px rgba(34, 197, 94, 0.3);
+            --glow-red: 0 0 20px rgba(239, 68, 68, 0.3);
+            --radius-sm: 6px;
+            --radius-md: 10px;
+            --radius-lg: 14px;
         }
+
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-            background: var(--bg);
-            color: var(--text);
-            margin: 0;
-            padding: 16px;
-            font-size: 14px;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            line-height: 1.5;
         }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+
+        /* Header */
         .header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 16px;
-            padding-bottom: 12px;
-            border-bottom: 1px solid var(--border);
+            padding: 20px 24px;
+            background: linear-gradient(to bottom, var(--bg-secondary), transparent);
+            border-bottom: 1px solid var(--border-subtle);
+            margin-bottom: 24px;
         }
-        .header h1 { margin: 0; font-size: 1.4em; }
-        .status { padding: 4px 10px; border-radius: 4px; font-size: 0.8em; font-weight: 600; }
-        .status.online { background: var(--green); color: #000; }
-        .status.offline { background: var(--red); color: #fff; }
 
-        .grid-2 {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
+        .header-left {
+            display: flex;
+            align-items: center;
             gap: 16px;
-            margin-bottom: 16px;
         }
-        .grid-3 {
-            display: grid;
-            grid-template-columns: 1fr 1fr 1fr;
-            gap: 16px;
-            margin-bottom: 16px;
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
         }
+
+        .logo-icon {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, var(--accent-purple), var(--accent-blue));
+            border-radius: var(--radius-md);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            font-weight: 700;
+            color: white;
+            box-shadow: 0 4px 12px rgba(168, 85, 247, 0.3);
+        }
+
+        .logo-text {
+            font-size: 1.25rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+        }
+
+        .logo-text span {
+            color: var(--text-muted);
+            font-weight: 400;
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .route-badge {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 14px;
+            background: var(--accent-purple-dim);
+            border: 1px solid rgba(168, 85, 247, 0.3);
+            border-radius: 100px;
+            font-size: 0.8rem;
+            font-weight: 500;
+            color: var(--accent-purple);
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            border-radius: 100px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .status-indicator.online {
+            background: var(--accent-green-dim);
+            color: var(--accent-green);
+            box-shadow: var(--glow-green);
+        }
+
+        .status-indicator.offline {
+            background: var(--accent-red-dim);
+            color: var(--accent-red);
+            box-shadow: var(--glow-red);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: currentColor;
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(0.9); }
+        }
+
+        .btn {
+            padding: 8px 16px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+            font-weight: 500;
+            text-decoration: none;
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+
+        .btn:hover {
+            background: var(--border);
+            color: var(--text-primary);
+            border-color: var(--text-muted);
+        }
+
+        /* Grid Layouts */
         .grid-4 {
             display: grid;
             grid-template-columns: repeat(4, 1fr);
             gap: 16px;
-            margin-bottom: 16px;
-        }
-        @media (max-width: 1100px) {
-            .grid-4 { grid-template-columns: 1fr 1fr; }
-        }
-        @media (max-width: 900px) {
-            .grid-3 { grid-template-columns: 1fr 1fr; }
-        }
-        @media (max-width: 600px) {
-            .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
+            margin-bottom: 20px;
         }
 
-        .card {
-            background: var(--card);
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            padding: 16px;
+        .grid-3 {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 16px;
+            margin-bottom: 20px;
         }
-        .card-title {
-            font-size: 0.7em;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            color: var(--muted);
-            margin-bottom: 12px;
+
+        @media (max-width: 1200px) {
+            .grid-4 { grid-template-columns: repeat(2, 1fr); }
+        }
+
+        @media (max-width: 768px) {
+            .grid-4, .grid-3 { grid-template-columns: 1fr; }
+            .container { padding: 16px; }
+            .header { flex-direction: column; gap: 16px; padding: 16px; }
+        }
+
+        /* Cards */
+        .card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-lg);
+            padding: 20px;
+            transition: all 0.2s ease;
+        }
+
+        .card:hover {
+            border-color: var(--border);
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+        }
+
+        .card-header {
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 10px;
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid var(--border-subtle);
         }
-        .card-title .icon { font-size: 1.2em; }
+
+        .card-icon {
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: var(--radius-sm);
+            font-size: 16px;
+        }
+
+        .card-icon.purple { background: var(--accent-purple-dim); }
+        .card-icon.blue { background: var(--accent-blue-dim); }
+        .card-icon.green { background: var(--accent-green-dim); }
+        .card-icon.orange { background: var(--accent-orange); background: rgba(249, 115, 22, 0.15); }
+
+        .card-title {
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--text-muted);
+        }
+
+        /* Balance Rows */
+        .balance-list {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
 
         .balance-row {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 8px 0;
-            border-bottom: 1px solid var(--border);
+            padding: 10px 12px;
+            border-radius: var(--radius-sm);
+            transition: background 0.15s ease;
         }
-        .balance-row:last-child { border-bottom: none; }
+
+        .balance-row:hover {
+            background: var(--bg-tertiary);
+        }
+
+        .balance-row.total {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-subtle);
+            margin-top: 8px;
+        }
+
         .balance-label {
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 10px;
         }
-        .balance-label .token {
-            font-weight: 600;
-            color: var(--text);
-        }
-        .balance-label .chain {
-            font-size: 0.75em;
-            color: var(--muted);
-            background: rgba(255,255,255,0.05);
-            padding: 2px 6px;
-            border-radius: 3px;
-        }
-        .balance-value {
-            font-family: monospace;
-            font-weight: bold;
-            font-size: 1.1em;
-        }
-        .balance-value.green { color: var(--green); }
-        .balance-value.red { color: var(--red); }
-        .balance-value.yellow { color: var(--yellow); }
 
-        .stats-row {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 12px;
+        .token-name {
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+
+        .token-chain {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            background: var(--bg-tertiary);
+            padding: 2px 8px;
+            border-radius: 100px;
+        }
+
+        .balance-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 600;
+            font-size: 0.95rem;
+        }
+
+        .balance-value.positive { color: var(--accent-green); }
+        .balance-value.negative { color: var(--accent-red); }
+        .balance-value.warning { color: var(--accent-yellow); }
+
+        /* Stats Cards */
+        .stat-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-lg);
+            padding: 24px;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, var(--accent-purple), var(--accent-blue));
+            opacity: 0;
+            transition: opacity 0.2s ease;
+        }
+
+        .stat-card:hover::before {
+            opacity: 1;
+        }
+
+        .stat-label {
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+        }
+
+        .stat-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 2rem;
+            font-weight: 700;
+            line-height: 1.2;
+        }
+
+        .stat-value.green { color: var(--accent-green); }
+        .stat-value.red { color: var(--accent-red); }
+        .stat-value.yellow { color: var(--accent-yellow); }
+
+        .stat-sub {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-top: 6px;
+        }
+
+        /* Market Display */
+        .market-price-display {
+            text-align: center;
+            padding: 16px;
+            background: var(--bg-tertiary);
+            border-radius: var(--radius-md);
             margin-bottom: 16px;
         }
-        @media (max-width: 600px) {
-            .stats-row { grid-template-columns: 1fr; }
+
+        .market-price-label {
+            font-size: 0.65rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--text-muted);
+            margin-bottom: 4px;
         }
-        .stat-card {
-            background: var(--card);
-            border: 1px solid var(--border);
-            border-radius: 6px;
+
+        .market-price-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1.5rem;
+            font-weight: 700;
+        }
+
+        .market-spread {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        .market-side {
             padding: 12px;
+            border-radius: var(--radius-sm);
             text-align: center;
         }
-        .stat-label { color: var(--muted); font-size: 0.75em; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
-        .stat-value { font-size: 1.5em; font-weight: bold; font-family: monospace; }
-        .stat-value.green { color: var(--green); }
-        .stat-value.red { color: var(--red); }
-        .stat-value.yellow { color: var(--yellow); }
-        .stat-sub { font-size: 0.8em; color: var(--muted); margin-top: 4px; }
 
-        .section { margin-bottom: 16px; }
-        .section-title {
-            font-size: 0.75em;
+        .market-side.bid {
+            background: var(--accent-green-dim);
+        }
+
+        .market-side.ask {
+            background: var(--accent-red-dim);
+        }
+
+        .market-side-label {
+            font-size: 0.6rem;
+            font-weight: 600;
             text-transform: uppercase;
-            letter-spacing: 0.5px;
-            color: var(--muted);
-            margin-bottom: 8px;
+            letter-spacing: 0.1em;
+            color: var(--text-muted);
+            margin-bottom: 2px;
+        }
+
+        .market-side-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.9rem;
+            font-weight: 600;
+        }
+
+        .market-side.bid .market-side-value { color: var(--accent-green); }
+        .market-side.ask .market-side-value { color: var(--accent-red); }
+
+        /* Config Grid */
+        .config-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+        }
+
+        .config-item {
+            padding: 10px 12px;
+            background: var(--bg-tertiary);
+            border-radius: var(--radius-sm);
+        }
+
+        .config-label {
+            font-size: 0.65rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--text-muted);
+            margin-bottom: 4px;
+        }
+
+        .config-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+
+        /* Table Section */
+        .section {
+            margin-bottom: 24px;
+        }
+
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+
+        .section-title {
+            font-size: 0.85rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--text-secondary);
+        }
+
+        .legend {
+            display: flex;
+            gap: 16px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        @media (max-width: 900px) {
+            .legend { display: none; }
+        }
+
+        /* Quote Table */
+        .table-container {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-lg);
+            overflow: hidden;
         }
 
         .quote-table {
             width: 100%;
             border-collapse: collapse;
-            background: var(--card);
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            overflow: hidden;
         }
+
         .quote-table th {
             text-align: left;
-            padding: 10px 12px;
-            font-size: 0.7em;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            color: var(--muted);
-            background: rgba(0,0,0,0.2);
-            border-bottom: 1px solid var(--border);
-        }
-        .quote-table td {
-            padding: 10px 12px;
-            border-bottom: 1px solid var(--border);
-            vertical-align: middle;
-        }
-        .quote-table tr:last-child td { border-bottom: none; }
-        .quote-table tr:hover { background: rgba(255,255,255,0.02); }
-
-        .quote-id { font-family: monospace; color: var(--blue); font-size: 0.9em; }
-        .badge {
-            display: inline-block;
-            padding: 2px 6px;
-            border-radius: 3px;
-            font-size: 0.7em;
+            padding: 14px 16px;
+            font-size: 0.7rem;
             font-weight: 600;
             text-transform: uppercase;
-        }
-        .badge.buy { background: rgba(63, 185, 80, 0.2); color: var(--green); }
-        .badge.sell { background: rgba(248, 81, 73, 0.2); color: var(--red); }
-        .badge.won { background: var(--green); color: #000; }
-        .badge.lost { background: var(--red); color: #fff; }
-        .badge.pending { background: var(--blue); color: #fff; }
-        .badge.expired { background: var(--yellow); color: #000; }
-
-        .legend {
-            display: flex;
-            gap: 16px;
-            font-size: 0.85em;
-        }
-        .legend-item {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            color: var(--muted);
-        }
-        .legend-item .badge {
-            font-size: 0.75em;
-            padding: 2px 5px;
-        }
-        @media (max-width: 800px) {
-            .legend { display: none; }
+            letter-spacing: 0.08em;
+            color: var(--text-muted);
+            background: var(--bg-tertiary);
+            border-bottom: 1px solid var(--border-subtle);
         }
 
-        .amount { font-family: monospace; }
-        .timing { font-family: monospace; font-size: 0.85em; }
-        .timing.fast { color: var(--green); }
-        .timing.slow { color: var(--yellow); }
-        .timing.very-slow { color: var(--red); }
-
-        .empty-state {
-            text-align: center;
-            padding: 40px;
-            color: var(--muted);
+        .quote-table td {
+            padding: 14px 16px;
+            border-bottom: 1px solid var(--border-subtle);
+            font-size: 0.875rem;
         }
 
-        .btn {
-            background: var(--card);
-            border: 1px solid var(--border);
-            color: var(--blue);
-            padding: 6px 12px;
-            border-radius: 4px;
-            text-decoration: none;
-            font-size: 0.85em;
+        .quote-table tr:last-child td {
+            border-bottom: none;
         }
-        .btn:hover { background: var(--border); }
 
-        .route-badge {
+        .quote-table tr:hover td {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .quote-id {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            color: var(--accent-blue);
+        }
+
+        .badge {
             display: inline-flex;
             align-items: center;
-            gap: 4px;
-            background: rgba(163, 113, 247, 0.1);
-            border: 1px solid var(--purple);
-            color: var(--purple);
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 0.8em;
+            padding: 4px 10px;
+            border-radius: 100px;
+            font-size: 0.65rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .badge.buy {
+            background: var(--accent-green-dim);
+            color: var(--accent-green);
+        }
+
+        .badge.sell {
+            background: var(--accent-red-dim);
+            color: var(--accent-red);
+        }
+
+        .badge.won {
+            background: var(--accent-green);
+            color: #000;
+        }
+
+        .badge.lost {
+            background: var(--accent-red-dim);
+            color: var(--accent-red);
+        }
+
+        .badge.pending {
+            background: var(--accent-blue-dim);
+            color: var(--accent-blue);
+        }
+
+        .badge.expired {
+            background: var(--accent-yellow-dim);
+            color: var(--accent-yellow);
+        }
+
+        .amount {
+            font-family: 'JetBrains Mono', monospace;
             font-weight: 500;
         }
 
-        .config-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 8px;
-        }
-        .config-item {
-            display: flex;
-            flex-direction: column;
-            padding: 6px 0;
-        }
-        .config-label {
-            font-size: 0.7em;
-            color: var(--muted);
-            text-transform: uppercase;
-            letter-spacing: 0.3px;
-        }
-        .config-value {
-            font-family: monospace;
-            font-size: 0.9em;
-            color: var(--text);
+        .timing {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
         }
 
-        /* Market display */
-        .market-price {
+        .timing.fast { color: var(--accent-green); }
+        .timing.slow { color: var(--accent-yellow); }
+        .timing.very-slow { color: var(--accent-red); }
+
+        .empty-state {
             text-align: center;
-            padding: 8px 0;
-            border-bottom: 1px solid var(--border);
-            margin-bottom: 8px;
+            padding: 48px;
+            color: var(--text-muted);
         }
-        .price-label {
-            display: block;
-            font-size: 0.7em;
-            color: var(--muted);
-            text-transform: uppercase;
+
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
         }
-        .price-value {
-            font-family: monospace;
-            font-size: 1.4em;
-            font-weight: bold;
-            color: var(--text);
+
+        ::-webkit-scrollbar-track {
+            background: var(--bg-primary);
         }
-        .market-row {
-            display: flex;
-            gap: 8px;
-        }
-        .market-item {
-            flex: 1;
-            text-align: center;
-            padding: 6px;
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--border);
             border-radius: 4px;
         }
-        .market-item.bid {
-            background: rgba(63, 185, 80, 0.1);
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--text-muted);
         }
-        .market-item.ask {
-            background: rgba(248, 81, 73, 0.1);
+
+        /* Divider */
+        .divider {
+            height: 1px;
+            background: var(--border-subtle);
+            margin: 12px 0;
         }
-        .market-label {
-            display: block;
-            font-size: 0.65em;
-            color: var(--muted);
+
+        .section-label {
+            font-size: 0.6rem;
+            font-weight: 600;
             text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+            margin-top: 12px;
         }
-        .market-value {
-            font-family: monospace;
-            font-size: 0.95em;
-        }
-        .market-item.bid .market-value { color: var(--green); }
-        .market-item.ask .market-value { color: var(--red); }
     </style>
 </head>
 <body>
-    <div class="header">
-        <h1>Solver Dashboard</h1>
-        <div style="display: flex; gap: 8px; align-items: center;">
+    <header class="header">
+        <div class="header-left">
+            <div class="logo">
+                <div class="logo-icon">S</div>
+                <div class="logo-text">Sova <span>Delta-Neutral Solver</span></div>
+            </div>
+        </div>
+        <div class="header-right">
             <span class="route-badge" id="route-badge">Loading...</span>
-            <span id="status" class="status">...</span>
-            <a href="/api/export/trades.csv" class="btn">CSV</a>
+            <div class="status-indicator offline" id="status">
+                <span class="status-dot"></span>
+                <span>Connecting</span>
+            </div>
+            <a href="/api/export/trades.csv" class="btn">Export CSV</a>
         </div>
-    </div>
+    </header>
 
-    <div class="grid-4">
-        <!-- NEAR Intents Balances -->
-        <div class="card">
-            <div class="card-title">
-                <span class="icon">⚡</span>
-                NEAR Intents Balance
-            </div>
-            <div id="btc-balances-container">
-                <!-- BTC balances will be dynamically inserted here -->
-            </div>
-            <div class="balance-row" style="border-top: 1px solid var(--border); margin-top: 4px; padding-top: 8px;">
-                <div class="balance-label">
-                    <span class="token" style="font-weight: bold;">Total BTC</span>
+    <div class="container">
+        <div class="grid-4">
+            <!-- NEAR Intents Balances -->
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-icon purple">⚡</div>
+                    <span class="card-title">NEAR Intents</span>
                 </div>
-                <div class="balance-value green" id="near-btc-total">-</div>
-            </div>
-            <div id="usd-balances-container" style="margin-top: 12px; border-top: 1px solid var(--border); padding-top: 8px;">
-                <!-- USD balances will be dynamically inserted here -->
-            </div>
-            <div class="balance-row" style="border-top: 1px solid var(--border); margin-top: 4px; padding-top: 8px;">
-                <div class="balance-label">
-                    <span class="token" style="font-weight: bold;">Total USD</span>
+                <div class="section-label">BTC Tokens</div>
+                <div class="balance-list" id="btc-balances-container">
+                    <!-- BTC balances injected here -->
                 </div>
-                <div class="balance-value green" id="near-usd-total">-</div>
+                <div class="balance-row total">
+                    <div class="balance-label">
+                        <span class="token-name">Total BTC</span>
+                    </div>
+                    <div class="balance-value positive" id="near-btc-total">-</div>
+                </div>
+                
+                <div class="section-label">USD Stablecoins</div>
+                <div class="balance-list" id="usd-balances-container">
+                    <!-- USD balances injected here -->
+                </div>
+                <div class="balance-row total">
+                    <div class="balance-label">
+                        <span class="token-name">Total USD</span>
+                    </div>
+                    <div class="balance-value positive" id="near-usd-total">-</div>
+                </div>
+            </div>
+
+            <!-- Hyperliquid Position -->
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-icon blue">📊</div>
+                    <span class="card-title">Hyperliquid</span>
+                </div>
+                <div class="balance-list">
+                    <div class="balance-row">
+                        <div class="balance-label">
+                            <span class="token-name">BTC Perp</span>
+                            <span class="token-chain">Position</span>
+                        </div>
+                        <div class="balance-value" id="hl-perp">-</div>
+                    </div>
+                    <div class="balance-row">
+                        <div class="balance-label">
+                            <span class="token-name">Margin</span>
+                            <span class="token-chain">Available</span>
+                        </div>
+                        <div class="balance-value" id="hl-margin">-</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Market Data -->
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-icon green">💹</div>
+                    <span class="card-title">BTC Market</span>
+                </div>
+                <div class="market-price-display">
+                    <div class="market-price-label">Mid Price</div>
+                    <div class="market-price-value" id="market-mid">-</div>
+                </div>
+                <div class="market-spread">
+                    <div class="market-side bid">
+                        <div class="market-side-label">Bid</div>
+                        <div class="market-side-value" id="market-bid">-</div>
+                    </div>
+                    <div class="market-side ask">
+                        <div class="market-side-label">Ask</div>
+                        <div class="market-side-value" id="market-ask">-</div>
+                    </div>
+                </div>
+                <div class="balance-list">
+                    <div class="balance-row">
+                        <span class="token-name">Spread</span>
+                        <span class="config-value" id="market-spread">-</span>
+                    </div>
+                    <div class="balance-row">
+                        <div class="balance-label">
+                            <span class="token-name">Funding</span>
+                            <span class="token-chain">1h</span>
+                        </div>
+                        <span class="config-value" id="market-funding">-</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Config Limits -->
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-icon orange">⚙️</div>
+                    <span class="card-title">Limits</span>
+                </div>
+                <div class="config-grid">
+                    <div class="config-item">
+                        <div class="config-label">Trade Size</div>
+                        <div class="config-value" id="cfg-trade-size">-</div>
+                    </div>
+                    <div class="config-item">
+                        <div class="config-label">Max Inventory</div>
+                        <div class="config-value" id="cfg-max-inv">-</div>
+                    </div>
+                    <div class="config-item">
+                        <div class="config-label">Min USD Reserve</div>
+                        <div class="config-value" id="cfg-min-usdt">-</div>
+                    </div>
+                    <div class="config-item">
+                        <div class="config-label">Spread</div>
+                        <div class="config-value" id="cfg-spread">-</div>
+                    </div>
+                    <div class="config-item">
+                        <div class="config-label">Min Margin</div>
+                        <div class="config-value" id="cfg-min-margin">-</div>
+                    </div>
+                    <div class="config-item">
+                        <div class="config-label">Drift Threshold</div>
+                        <div class="config-value" id="cfg-drift">-</div>
+                    </div>
+                </div>
             </div>
         </div>
 
-        <!-- Hyperliquid Positions -->
-        <div class="card">
-            <div class="card-title">
-                <span class="icon">📊</span>
-                Hyperliquid Position
+        <div class="grid-3">
+            <div class="stat-card">
+                <div class="stat-label">Net Delta</div>
+                <div class="stat-value" id="net-delta">-</div>
+                <div class="stat-sub">Spot + Perp Position</div>
             </div>
-            <div class="balance-row">
-                <div class="balance-label">
-                    <span class="token">BTC Perp</span>
-                    <span class="chain">Position</span>
-                </div>
-                <div class="balance-value" id="hl-perp">-</div>
+            <div class="stat-card">
+                <div class="stat-label">Win Rate (24h)</div>
+                <div class="stat-value" id="win-rate">-</div>
+                <div class="stat-sub"><span id="won-count">0</span> won / <span id="lost-count">0</span> lost</div>
             </div>
-            <div class="balance-row">
-                <div class="balance-label">
-                    <span class="token">Margin</span>
-                    <span class="chain">Available</span>
-                </div>
-                <div class="balance-value" id="hl-margin">-</div>
+            <div class="stat-card">
+                <div class="stat-label">Volume (24h)</div>
+                <div class="stat-value" id="volume">-</div>
+                <div class="stat-sub"><span id="hedges">0</span> hedges executed</div>
             </div>
         </div>
 
-        <!-- Hyperliquid Market Data -->
-        <div class="card">
-            <div class="card-title">
-                <span class="icon">💹</span>
-                HL BTC Market
-            </div>
-            <div class="market-price">
-                <span class="price-label">Mid</span>
-                <span class="price-value" id="market-mid">-</span>
-            </div>
-            <div class="market-row">
-                <div class="market-item bid">
-                    <span class="market-label">Bid</span>
-                    <span class="market-value" id="market-bid">-</span>
-                </div>
-                <div class="market-item ask">
-                    <span class="market-label">Ask</span>
-                    <span class="market-value" id="market-ask">-</span>
+        <div class="section">
+            <div class="section-header">
+                <span class="section-title">Recent Quotes</span>
+                <div class="legend">
+                    <span class="legend-item"><span class="badge won">WON</span> Accepted & hedged</span>
+                    <span class="legend-item"><span class="badge lost">LOST</span> Another solver won</span>
+                    <span class="legend-item"><span class="badge pending">PENDING</span> Awaiting settlement</span>
                 </div>
             </div>
-            <div class="balance-row" style="margin-top: 8px; padding-top: 8px;">
-                <div class="balance-label">
-                    <span class="token">Spread</span>
-                </div>
-                <span class="config-value" id="market-spread">-</span>
-            </div>
-            <div class="balance-row">
-                <div class="balance-label">
-                    <span class="token">Funding</span>
-                    <span class="chain">1h</span>
-                </div>
-                <span class="config-value" id="market-funding">-</span>
+            <div class="table-container">
+                <table class="quote-table">
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>ID</th>
+                            <th>Side</th>
+                            <th>Amount</th>
+                            <th>Result</th>
+                            <th style="text-align: right;">Latency</th>
+                        </tr>
+                    </thead>
+                    <tbody id="quotes-body">
+                        <tr><td colspan="6" class="empty-state">Loading quotes...</td></tr>
+                    </tbody>
+                </table>
             </div>
         </div>
-
-        <!-- Config Limits -->
-        <div class="card">
-            <div class="card-title">
-                <span class="icon">⚙️</span>
-                Limits
-            </div>
-            <div class="config-grid" id="config-limits">
-                <div class="config-item">
-                    <span class="config-label">Trade Size</span>
-                    <span class="config-value" id="cfg-trade-size">-</span>
-                </div>
-                <div class="config-item">
-                    <span class="config-label">Max Inventory</span>
-                    <span class="config-value" id="cfg-max-inv">-</span>
-                </div>
-                <div class="config-item">
-                    <span class="config-label">Min USDT Reserve</span>
-                    <span class="config-value" id="cfg-min-usdt">-</span>
-                </div>
-                <div class="config-item">
-                    <span class="config-label">Spread</span>
-                    <span class="config-value" id="cfg-spread">-</span>
-                </div>
-                <div class="config-item">
-                    <span class="config-label">Min Margin</span>
-                    <span class="config-value" id="cfg-min-margin">-</span>
-                </div>
-                <div class="config-item">
-                    <span class="config-label">Drift Threshold</span>
-                    <span class="config-value" id="cfg-drift">-</span>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div class="stats-row">
-        <div class="stat-card">
-            <div class="stat-label">Net Delta</div>
-            <div class="stat-value" id="net-delta">-</div>
-            <div class="stat-sub">Spot + Perp</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-label">Win Rate (24h)</div>
-            <div class="stat-value" id="win-rate">-</div>
-            <div class="stat-sub"><span id="won-count">0</span> won / <span id="lost-count">0</span> lost</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-label">Volume (24h)</div>
-            <div class="stat-value" id="volume">-</div>
-            <div class="stat-sub"><span id="hedges">0</span> hedges</div>
-        </div>
-    </div>
-
-    <div class="section">
-        <div class="section-title" style="display: flex; justify-content: space-between; align-items: center;">
-            <span>Recent Quotes</span>
-            <div class="legend">
-                <span class="legend-item"><span class="badge won">WON</span> Quote accepted & hedged</span>
-                <span class="legend-item"><span class="badge lost">LOST</span> Expired, cancelled, or another solver won</span>
-                <span class="legend-item"><span class="badge pending">PENDING</span> Awaiting settlement</span>
-            </div>
-        </div>
-        <table class="quote-table">
-            <thead>
-                <tr>
-                    <th>Time</th>
-                    <th>ID</th>
-                    <th>Side</th>
-                    <th>Amount</th>
-                    <th>Result</th>
-                    <th style="text-align: right;">Latency</th>
-                </tr>
-            </thead>
-            <tbody id="quotes-body">
-                <tr><td colspan="6" class="empty-state">Loading...</td></tr>
-            </tbody>
-        </table>
     </div>
 
     <script>
@@ -500,17 +824,11 @@
 
         function getResult(trade) {
             const type = trade.type;
-            if (type === 'QUOTE_PUBLISHED') {
-                return { text: 'PENDING', class: 'pending' };
-            } else if (type === 'QUOTE_REJECTED') {
-                return { text: 'LOST', class: 'lost' };
-            } else if (type === 'HEDGE_EXECUTED') {
-                return { text: 'WON', class: 'won' };
-            } else if (type === 'QUOTE_EXPIRED') {
-                return { text: 'EXPIRED', class: 'expired' };
-            } else if (type === 'HEDGE_FAILED') {
-                return { text: 'FAILED', class: 'lost' };
-            }
+            if (type === 'QUOTE_PUBLISHED') return { text: 'PENDING', class: 'pending' };
+            if (type === 'QUOTE_REJECTED') return { text: 'LOST', class: 'lost' };
+            if (type === 'HEDGE_EXECUTED') return { text: 'WON', class: 'won' };
+            if (type === 'QUOTE_EXPIRED') return { text: 'EXPIRED', class: 'expired' };
+            if (type === 'HEDGE_FAILED') return { text: 'FAILED', class: 'lost' };
             return { text: type, class: '' };
         }
 
@@ -529,8 +847,7 @@
                 const res = await fetch('/api/config');
                 if (res.ok) {
                     const cfg = await res.json();
-                    document.getElementById('cfg-trade-size').textContent =
-                        `${cfg.minTradeSizeBtc} - ${cfg.maxTradeSizeBtc} BTC`;
+                    document.getElementById('cfg-trade-size').textContent = `${cfg.minTradeSizeBtc} - ${cfg.maxTradeSizeBtc} BTC`;
                     document.getElementById('cfg-max-inv').textContent = `${cfg.maxBtcInventory} BTC`;
                     document.getElementById('cfg-min-usdt').textContent = `$${cfg.minUsdtReserve.toLocaleString()}`;
                     document.getElementById('cfg-spread').textContent = `${(cfg.targetSpreadBips / 100).toFixed(2)}%`;
@@ -545,18 +862,17 @@
 
         async function fetchData() {
             try {
-                // Config (only once)
                 fetchConfig();
 
                 // Health
                 const healthRes = await fetch('/health');
                 const statusEl = document.getElementById('status');
                 if (healthRes.ok) {
-                    statusEl.textContent = 'ONLINE';
-                    statusEl.className = 'status online';
+                    statusEl.innerHTML = '<span class="status-dot"></span><span>Online</span>';
+                    statusEl.className = 'status-indicator online';
                 } else {
-                    statusEl.textContent = 'OFFLINE';
-                    statusEl.className = 'status offline';
+                    statusEl.innerHTML = '<span class="status-dot"></span><span>Offline</span>';
+                    statusEl.className = 'status-indicator offline';
                 }
 
                 // Positions
@@ -564,10 +880,9 @@
                 if (posRes.ok) {
                     const pos = await posRes.json();
 
-                    // Route badge - show all supported token types
                     document.getElementById('route-badge').textContent = 'BTC/wBTC/cbBTC ↔ USDT/USDC';
 
-                    // NEAR Intents - render multiple BTC balances
+                    // BTC balances
                     const btcContainer = document.getElementById('btc-balances-container');
                     const btcBalances = pos.nearIntents?.btcBalances || [];
                     
@@ -575,17 +890,17 @@
                         btcContainer.innerHTML = btcBalances.map(b => `
                             <div class="balance-row">
                                 <div class="balance-label">
-                                    <span class="token">${b.symbol}</span>
-                                    <span class="chain">${getChainFromTokenId(b.tokenId)}</span>
+                                    <span class="token-name">${b.symbol}</span>
+                                    <span class="token-chain">${getChainFromTokenId(b.tokenId)}</span>
                                 </div>
-                                <div class="balance-value ${b.balance > 0 ? 'green' : ''}">${b.balance.toFixed(8)}</div>
+                                <div class="balance-value ${b.balance > 0 ? 'positive' : ''}">${b.balance.toFixed(8)}</div>
                             </div>
                         `).join('');
                     }
                     
-                    document.getElementById('near-btc-total').textContent = (pos.nearIntents?.totalBtc || pos.spotBtc || 0).toFixed(8);
+                    document.getElementById('near-btc-total').textContent = (pos.nearIntents?.totalBtc || 0).toFixed(8);
 
-                    // NEAR Intents - render multiple USD balances
+                    // USD balances
                     const usdContainer = document.getElementById('usd-balances-container');
                     const usdBalances = pos.nearIntents?.usdBalances || [];
                     
@@ -593,23 +908,23 @@
                         usdContainer.innerHTML = usdBalances.map(b => `
                             <div class="balance-row">
                                 <div class="balance-label">
-                                    <span class="token">${b.symbol}</span>
-                                    <span class="chain">${getChainFromTokenId(b.tokenId)}</span>
+                                    <span class="token-name">${b.symbol}</span>
+                                    <span class="token-chain">${getChainFromTokenId(b.tokenId)}</span>
                                 </div>
-                                <div class="balance-value ${b.balance > 0 ? 'green' : ''}">$${b.balance.toFixed(2)}</div>
+                                <div class="balance-value ${b.balance > 0 ? 'positive' : ''}">$${b.balance.toFixed(2)}</div>
                             </div>
                         `).join('');
                     }
                     
-                    document.getElementById('near-usd-total').textContent = '$' + (pos.nearIntents?.totalUsd || pos.spotUsdt || 0).toFixed(2);
+                    document.getElementById('near-usd-total').textContent = '$' + (pos.nearIntents?.totalUsd || 0).toFixed(2);
 
                     // Hyperliquid
-                    const perpPos = pos.hyperliquid?.perpPosition ?? pos.perpPosition ?? 0;
+                    const perpPos = pos.hyperliquid?.perpPosition ?? 0;
                     const hlPerpEl = document.getElementById('hl-perp');
                     hlPerpEl.textContent = perpPos.toFixed(8);
-                    hlPerpEl.className = 'balance-value ' + (perpPos < 0 ? 'red' : perpPos > 0 ? 'green' : '');
+                    hlPerpEl.className = 'balance-value ' + (perpPos < 0 ? 'negative' : perpPos > 0 ? 'positive' : '');
 
-                    document.getElementById('hl-margin').textContent = '$' + (pos.hyperliquid?.availableMargin ?? pos.availableMargin ?? 0).toFixed(2);
+                    document.getElementById('hl-margin').textContent = '$' + (pos.hyperliquid?.availableMargin ?? 0).toFixed(2);
 
                     // Net Delta
                     const deltaEl = document.getElementById('net-delta');
@@ -656,14 +971,13 @@
                     if (market.funding) {
                         const fundingEl = document.getElementById('market-funding');
                         fundingEl.textContent = market.funding.ratePercent;
-                        // Color based on funding rate (positive = longs pay, negative = shorts pay)
                         const rate = market.funding.rate;
                         if (rate > 0.0001) {
-                            fundingEl.style.color = 'var(--red)';
+                            fundingEl.style.color = 'var(--accent-red)';
                         } else if (rate < -0.0001) {
-                            fundingEl.style.color = 'var(--green)';
+                            fundingEl.style.color = 'var(--accent-green)';
                         } else {
-                            fundingEl.style.color = 'var(--muted)';
+                            fundingEl.style.color = 'var(--text-muted)';
                         }
                     }
                 }
@@ -712,7 +1026,7 @@
 
                         return `
                             <tr>
-                                <td style="color: var(--muted);">${time}</td>
+                                <td style="color: var(--text-muted);">${time}</td>
                                 <td><span class="quote-id">${shortId}</span></td>
                                 <td><span class="badge ${side}">${side.toUpperCase()}</span></td>
                                 <td class="amount">${amount}</td>
@@ -725,8 +1039,9 @@
 
             } catch (e) {
                 console.error("Fetch failed", e);
-                document.getElementById('status').textContent = 'OFFLINE';
-                document.getElementById('status').className = 'status offline';
+                const statusEl = document.getElementById('status');
+                statusEl.innerHTML = '<span class="status-dot"></span><span>Offline</span>';
+                statusEl.className = 'status-indicator offline';
             }
         }
 
