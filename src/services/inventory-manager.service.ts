@@ -42,9 +42,8 @@ export class InventoryStateService {
         this.refreshing = true;
 
         try {
-            const [margin, btcPos, fundingRate, btcBalanceBN, usdtBalanceBN] = await Promise.all([
-                this.hyperliquidService.getAvailableMargin(),
-                this.hyperliquidService.getBtcPosition(),
+            const [clearinghouseSnapshot, fundingRate, btcBalanceBN, usdtBalanceBN] = await Promise.all([
+                this.hyperliquidService.refreshClearinghouseState(),
                 this.hyperliquidService.getFundingRate(),
                 this.nearService.getBalance(BTC_ONLY_CONFIG.BTC_TOKEN_ID),
                 this.nearService.getBalance(BTC_ONLY_CONFIG.USDT_TOKEN_ID),
@@ -52,8 +51,8 @@ export class InventoryStateService {
 
             this.riskSnapshot = {
                 updatedAt: Date.now(),
-                margin,
-                btcPos,
+                margin: clearinghouseSnapshot?.margin ?? 0,
+                btcPos: clearinghouseSnapshot?.position ?? 0,
                 fundingRate,
                 btcBalance: btcBalanceBN.div(1e8).toNumber(),
                 usdtBalance: usdtBalanceBN.div(1e6).toNumber(),

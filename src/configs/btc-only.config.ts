@@ -22,4 +22,8 @@ export const BTC_ONLY_CONFIG = {
     DRIFT_THRESHOLD_BTC: parseFloat(process.env.DRIFT_THRESHOLD_BTC || '0.001'),
     MIN_TRADE_SIZE_BTC: parseFloat(process.env.MIN_TRADE_SIZE_BTC || '0.0001'),
     MAX_TRADE_SIZE_BTC: parseFloat(process.env.MAX_TRADE_SIZE_BTC || '1.0'),
+
+    // Hedge execution
+    HEDGE_SLIPPAGE_BPS: parseInt(process.env.HEDGE_SLIPPAGE_BPS || '30', 10), // 0.3% slippage tolerance
+    MAX_ORDERBOOK_AGE_MS: parseInt(process.env.MAX_ORDERBOOK_AGE_MS || '2000', 10), // Reject quotes if orderbook stale >2s
 };
