@@ -116,11 +116,6 @@ export class HyperliquidService {
         }
 
         const levels = side === 'bid' ? this.l2Book.levels[0] : this.l2Book.levels[1];
-        
-        const totalDepth = levels.reduce((sum, lvl) => sum + parseFloat(lvl.sz), 0);
-        if (size > 0.1) {
-            console.log(`[Orderbook] ${side} side: ${levels.length} levels, ${totalDepth.toFixed(4)} BTC total depth, requesting ${size.toFixed(4)} BTC`);
-        }
 
         let value = 0;
         let sizeRemaining = size;

@@ -20,22 +20,24 @@ export class QuoterService {
 
     getQuote(request: QuoteRequest) {
         try {
-            // 1. Validate Assets
-            const isBtcIn = request.token_in === BTC_ONLY_CONFIG.BTC_TOKEN_ID;
+            // 1. Validate Assets - accept any supported BTC token paired with USDT
+            const isBtcIn = BTC_ONLY_CONFIG.isBtcToken(request.token_in);
             const isUsdtIn = request.token_in === BTC_ONLY_CONFIG.USDT_TOKEN_ID;
-            const isBtcOut = request.token_out === BTC_ONLY_CONFIG.BTC_TOKEN_ID;
+            const isBtcOut = BTC_ONLY_CONFIG.isBtcToken(request.token_out);
             const isUsdtOut = request.token_out === BTC_ONLY_CONFIG.USDT_TOKEN_ID;
 
             if (!((isBtcIn && isUsdtOut) || (isUsdtIn && isBtcOut))) {
                 return undefined;
             }
 
-            // 2. Determine if we are Buying or Selling BTC
+            // 2. Determine if we are Buying or Selling BTC (from user's perspective, we receive BTC)
             const weAreBuyingBtc = isBtcIn;
+            const btcTokenId = isBtcIn ? request.token_in : request.token_out;
 
-            // 3. Calculate Price
-            const decimalsIn = isBtcIn ? 8 : 6;
-            const decimalsOut = isBtcOut ? 8 : 6;
+            // 3. Calculate Price using config decimals
+            const btcDecimals = BTC_ONLY_CONFIG.getBtcDecimals(btcTokenId);
+            const decimalsIn = isBtcIn ? btcDecimals : BTC_ONLY_CONFIG.USDT_DECIMALS;
+            const decimalsOut = isBtcOut ? btcDecimals : BTC_ONLY_CONFIG.USDT_DECIMALS;
 
             const amountInFloat = parseFloat(request.amount_in) / Math.pow(10, decimalsIn);
 
@@ -121,11 +123,19 @@ export class QuoterService {
             // 8. Return Quote
             const amountOutRaw = Math.floor(amountOut * Math.pow(10, decimalsOut)).toString();
 
+            // Calculate correct amounts for logging:
+            // weAreBuyingBtc = user sends BTC, we send USDT
+            //   -> amountBtc = btcSize (what user sends), amountUsdt = amountOut (what we send)
+            // !weAreBuyingBtc = user sends USDT, we send BTC  
+            //   -> amountBtc = amountOut (what we send), amountUsdt = amountInFloat (what user sends)
+            const logAmountBtc = weAreBuyingBtc ? btcSize : amountOut;
+            const logAmountUsdt = weAreBuyingBtc ? amountOut : amountInFloat;
+
             this.logger.logTrade({
                 type: 'QUOTE_GENERATED',
                 direction: weAreBuyingBtc ? 'buy' : 'sell',
-                amountBtc: weAreBuyingBtc ? amountOut : btcSize,
-                amountUsdt: weAreBuyingBtc ? amountInFloat : amountOut * finalPrice,
+                amountBtc: logAmountBtc,
+                amountUsdt: logAmountUsdt,
                 quotedPrice: finalPrice
             });
 

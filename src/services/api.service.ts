@@ -38,38 +38,34 @@ export class ApiService {
         // Positions & Status
         this.app.get('/api/positions', async (req, res) => {
             try {
-                const spotBtcBN = await this.nearService.getBalance(BTC_ONLY_CONFIG.BTC_TOKEN_ID);
-                const spotUsdtBN = await this.nearService.getBalance(BTC_ONLY_CONFIG.USDT_TOKEN_ID);
+                // Fetch all BTC token balances in parallel using config
+                const btcBalancePromises = BTC_ONLY_CONFIG.BTC_TOKENS.map(async token => {
+                    const balBN = await this.nearService.getBalance(token.id);
+                    return {
+                        tokenId: token.id,
+                        symbol: token.symbol,
+                        balance: balBN.div(Math.pow(10, token.decimals)).toNumber()
+                    };
+                });
 
-                const spotBtc = spotBtcBN.div(1e8).toNumber();
+                const [btcBalances, spotUsdtBN, perpPos, availableMargin] = await Promise.all([
+                    Promise.all(btcBalancePromises),
+                    this.nearService.getBalance(BTC_ONLY_CONFIG.USDT_TOKEN_ID),
+                    this.hlService.getBtcPosition(),
+                    this.hlService.getAvailableMargin()
+                ]);
+
                 const spotUsdt = spotUsdtBN.div(1e6).toNumber();
-                const perpPos = await this.hlService.getBtcPosition();
-                const availableMargin = await this.hlService.getAvailableMargin();
-
-                const netDelta = spotBtc + perpPos;
-
-                // Parse token symbols from token IDs
-                const btcTokenId = BTC_ONLY_CONFIG.BTC_TOKEN_ID;
-                const usdtTokenId = BTC_ONLY_CONFIG.USDT_TOKEN_ID;
-
-                // Extract readable names
-                let btcSymbol = 'BTC';
-                if (btcTokenId.includes('cbbtc') || btcTokenId.includes('cbb7c0000ab88b473b1f5afd9ef808440eed33bf')) {
-                    btcSymbol = 'cbBTC';
-                } else if (btcTokenId.includes('2260fac5e5542a773aa44fbcfedf7c193bc2c599')) {
-                    btcSymbol = 'wBTC';
-                } else if (btcTokenId === 'btc.omft.near') {
-                    btcSymbol = 'BTC';
-                }
+                const totalSpotBtc = btcBalances.reduce((sum, b) => sum + b.balance, 0);
+                const netDelta = totalSpotBtc + perpPos;
 
                 const snapshot = {
-                    // NEAR Intents balances
+                    // NEAR Intents balances - multi-BTC support
                     nearIntents: {
-                        btc: spotBtc,
-                        btcSymbol,
-                        btcTokenId,
+                        btcBalances,
+                        totalBtc: totalSpotBtc,
                         usdt: spotUsdt,
-                        usdtTokenId
+                        usdtTokenId: BTC_ONLY_CONFIG.USDT_TOKEN_ID
                     },
                     // Hyperliquid positions
                     hyperliquid: {
@@ -79,7 +75,7 @@ export class ApiService {
                     // Computed
                     netDelta,
                     // Legacy fields for backwards compat
-                    spotBtc,
+                    spotBtc: totalSpotBtc,
                     spotUsdt,
                     perpPosition: perpPos,
                     availableMargin,

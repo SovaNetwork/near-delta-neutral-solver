@@ -7,7 +7,8 @@ export interface RiskSnapshot {
     margin: number;
     btcPos: number;
     fundingRate: number;
-    btcBalance: number;
+    btcBalances: Map<string, number>;  // tokenId -> balance
+    totalBtcBalance: number;           // sum of all BTC types
     usdtBalance: number;
 }
 
@@ -42,19 +43,38 @@ export class InventoryStateService {
         this.refreshing = true;
 
         try {
-            const [clearinghouseSnapshot, fundingRate, btcBalanceBN, usdtBalanceBN] = await Promise.all([
+            // Fetch balances for all BTC token types in parallel
+            const btcBalancePromises = BTC_ONLY_CONFIG.BTC_TOKENS.map(token =>
+                this.nearService.getBalance(token.id).then(bal => ({ 
+                    tokenId: token.id, 
+                    balance: bal,
+                    decimals: token.decimals 
+                }))
+            );
+
+            const [clearinghouseSnapshot, fundingRate, usdtBalanceBN, ...btcResults] = await Promise.all([
                 this.hyperliquidService.refreshClearinghouseState(),
                 this.hyperliquidService.getFundingRate(),
-                this.nearService.getBalance(BTC_ONLY_CONFIG.BTC_TOKEN_ID),
                 this.nearService.getBalance(BTC_ONLY_CONFIG.USDT_TOKEN_ID),
+                ...btcBalancePromises,
             ]);
+
+            // Build balance map and calculate total using per-token decimals
+            const btcBalances = new Map<string, number>();
+            let totalBtcBalance = 0;
+            for (const result of btcResults) {
+                const balance = result.balance.div(Math.pow(10, result.decimals)).toNumber();
+                btcBalances.set(result.tokenId, balance);
+                totalBtcBalance += balance;
+            }
 
             this.riskSnapshot = {
                 updatedAt: Date.now(),
                 margin: clearinghouseSnapshot?.margin ?? 0,
                 btcPos: clearinghouseSnapshot?.position ?? 0,
                 fundingRate,
-                btcBalance: btcBalanceBN.div(1e8).toNumber(),
+                btcBalances,
+                totalBtcBalance,
                 usdtBalance: usdtBalanceBN.div(1e6).toNumber(),
             };
 
@@ -79,9 +99,9 @@ export class InventoryStateService {
 
         const canBuyBtc =
             snap.usdtBalance > BTC_ONLY_CONFIG.MIN_USDT_RESERVE &&
-            snap.btcBalance < BTC_ONLY_CONFIG.MAX_BTC_INVENTORY;
+            snap.totalBtcBalance < BTC_ONLY_CONFIG.MAX_BTC_INVENTORY;
 
-        const canSellBtc = snap.btcBalance > BTC_ONLY_CONFIG.MIN_TRADE_SIZE_BTC;
+        const canSellBtc = snap.totalBtcBalance > BTC_ONLY_CONFIG.MIN_TRADE_SIZE_BTC;
 
         if (canBuyBtc && canSellBtc) return 'BOTH';
         if (canBuyBtc) return 'BUY_BTC_ONLY';

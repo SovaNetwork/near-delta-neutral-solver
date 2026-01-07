@@ -188,11 +188,22 @@ async function connectToBusWithRetry(
                 amount_in: quoteData.exact_amount_in || quoteData.exact_amount_out
             };
 
-            // Validate Token Support
-            if (req.token_in !== BTC_ONLY_CONFIG.BTC_TOKEN_ID && req.token_in !== BTC_ONLY_CONFIG.USDT_TOKEN_ID) {
-                return;
-            }
-            if (req.token_out !== BTC_ONLY_CONFIG.BTC_TOKEN_ID && req.token_out !== BTC_ONLY_CONFIG.USDT_TOKEN_ID) {
+            // Validate Token Support - accept any supported BTC token paired with USDT
+            const isTokenInBtc = BTC_ONLY_CONFIG.isBtcToken(req.token_in);
+            const isTokenInUsdt = req.token_in === BTC_ONLY_CONFIG.USDT_TOKEN_ID;
+            const isTokenOutBtc = BTC_ONLY_CONFIG.isBtcToken(req.token_out);
+            const isTokenOutUsdt = req.token_out === BTC_ONLY_CONFIG.USDT_TOKEN_ID;
+
+            if (!((isTokenInBtc && isTokenOutUsdt) || (isTokenInUsdt && isTokenOutBtc))) {
+                // Debug: log if we see a BTC-like token that we don't support
+                const looksLikeBtc = (id: string) => 
+                    id.toLowerCase().includes('btc') || 
+                    id.includes('2260fac5e5542a773aa44fbcfedf7c193bc2c599') ||
+                    id.includes('cbb7c0000ab88b473b1f5afd9ef808440eed33bf');
+                
+                if (looksLikeBtc(req.token_in) || looksLikeBtc(req.token_out)) {
+                    console.warn(`[DEBUG] Rejected BTC-like pair: ${req.token_in} → ${req.token_out}`);
+                }
                 return;
             }
 
@@ -202,10 +213,14 @@ async function connectToBusWithRetry(
             const t3 = performance.now();
 
             if (quote) {
-                const isBuyingBtc = req.token_in === BTC_ONLY_CONFIG.BTC_TOKEN_ID;
-                const decimals = isBuyingBtc ? 8 : 6;
-                const amountInFloat = parseFloat(req.amount_in) / Math.pow(10, decimals);
-                const amountOutFloat = parseFloat(quote.amount_out) / (isBuyingBtc ? 1e6 : 1e8);
+                const isBuyingBtc = BTC_ONLY_CONFIG.isBtcToken(req.token_in);
+                const btcTokenId = isBuyingBtc ? req.token_in : req.token_out;
+                const btcSymbol = BTC_ONLY_CONFIG.getBtcSymbol(btcTokenId);
+                const btcDecimals = BTC_ONLY_CONFIG.getBtcDecimals(btcTokenId);
+                const decimalsIn = isBuyingBtc ? btcDecimals : BTC_ONLY_CONFIG.USDT_DECIMALS;
+                const decimalsOut = isBuyingBtc ? BTC_ONLY_CONFIG.USDT_DECIMALS : btcDecimals;
+                const amountInFloat = parseFloat(req.amount_in) / Math.pow(10, decimalsIn);
+                const amountOutFloat = parseFloat(quote.amount_out) / Math.pow(10, decimalsOut);
 
                 // Build proper intents message
                 const quoteDeadlineMs = quoteData.min_deadline_ms + 60000; // Add 60s buffer
@@ -233,12 +248,12 @@ async function connectToBusWithRetry(
                 const nonce = generateRandomNonce();
                 const recipient = NEAR_CONFIG.INTENTS_CONTRACT_ID;
 
-                // Calculate hedge amount
+                // Calculate hedge amount using config decimals
                 let amountBtcForHedge = 0;
                 if (isBuyingBtc) {
                     amountBtcForHedge = amountInFloat;
                 } else {
-                    amountBtcForHedge = parseFloat(quote.amount_out) / 1e8;
+                    amountBtcForHedge = parseFloat(quote.amount_out) / Math.pow(10, btcDecimals);
                 }
 
                 const t4 = performance.now();
@@ -312,7 +327,7 @@ async function connectToBusWithRetry(
                             quoteId: nonce
                         });
 
-                        console.log(`✅ [${shortId(nonce)}] PUBLISHED | ${isBuyingBtc ? 'BUY' : 'SELL'} ${amountInFloat.toFixed(6)} → ${amountOutFloat.toFixed(6)} | ${timings.total}ms`);
+                        console.log(`✅ [${shortId(nonce)}] PUBLISHED | ${isBuyingBtc ? 'BUY' : 'SELL'} ${btcSymbol} ${amountInFloat.toFixed(6)} → ${amountOutFloat.toFixed(6)} | ${timings.total}ms`);
 
                         logger.logTrade({
                             type: 'QUOTE_PUBLISHED',
@@ -333,7 +348,7 @@ async function connectToBusWithRetry(
                         // Check if this is "another solver won" error
                         const errorMessage = relayErr?.message || String(relayErr);
                         if (errorMessage.includes('-32098') || errorMessage.includes('not found or already finished')) {
-                            console.log(`❌ [${shortId(nonce)}] REJECTED (solver lost) | ${isBuyingBtc ? 'BUY' : 'SELL'} ${amountInFloat.toFixed(6)} → ${amountOutFloat.toFixed(6)} | ${timings.total}ms (post: ${timings.post}ms)`);
+                            console.log(`❌ [${shortId(nonce)}] REJECTED (solver lost) | ${isBuyingBtc ? 'BUY' : 'SELL'} ${btcSymbol} ${amountInFloat.toFixed(6)} → ${amountOutFloat.toFixed(6)} | ${timings.total}ms (post: ${timings.post}ms)`);
 
                             logger.logTrade({
                                 type: 'QUOTE_REJECTED',

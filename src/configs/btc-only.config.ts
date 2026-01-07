@@ -1,15 +1,49 @@
+export interface BtcTokenConfig {
+    id: string;
+    symbol: string;
+    decimals: number;
+}
+
 export const BTC_ONLY_CONFIG = {
     BTC_ONLY_MODE: true,
 
-    // Active BTC Token ID (Select ONE via .env or hardcode here)
-    // Options:
-    // 1. wBTC (Eth): eth-0x2260fac5e5542a773aa44fbcfedf7c193bc2c599.omft.near
-    // 2. cbBTC (Base): base-0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf.omft.near
-    // 3. BTC (Spot): btc.omft.near
-    BTC_TOKEN_ID: process.env.BTC_TOKEN_ID || 'base-0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf.omft.near',
+    // Supported BTC tokens with their configuration
+    BTC_TOKENS: [
+        { id: 'btc.omft.near', symbol: 'BTC', decimals: 8 },
+        { id: 'eth-0x2260fac5e5542a773aa44fbcfedf7c193bc2c599.omft.near', symbol: 'wBTC', decimals: 8 },
+        { id: 'base-0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf.omft.near', symbol: 'cbBTC', decimals: 8 },
+    ] as BtcTokenConfig[],
 
-    // eth-0xdac... (Bridged USDT from ETH)
+    // Derived array of token IDs for quick lookup
+    get BTC_TOKEN_IDS(): string[] {
+        return this.BTC_TOKENS.map(t => t.id);
+    },
+
+    // Helper to check if a token is a supported BTC type
+    isBtcToken: (tokenId: string): boolean => {
+        return BTC_ONLY_CONFIG.BTC_TOKENS.some(t => t.id === tokenId);
+    },
+
+    // Get token config by ID
+    getBtcTokenConfig: (tokenId: string): BtcTokenConfig | undefined => {
+        return BTC_ONLY_CONFIG.BTC_TOKENS.find(t => t.id === tokenId);
+    },
+
+    // Get human-readable symbol for BTC token
+    getBtcSymbol: (tokenId: string): string => {
+        const config = BTC_ONLY_CONFIG.getBtcTokenConfig(tokenId);
+        return config?.symbol ?? 'BTC';
+    },
+
+    // Get decimals for BTC token (defaults to 8)
+    getBtcDecimals: (tokenId: string): number => {
+        const config = BTC_ONLY_CONFIG.getBtcTokenConfig(tokenId);
+        return config?.decimals ?? 8;
+    },
+
+    // USDT configuration
     USDT_TOKEN_ID: process.env.USDT_TOKEN_ID || 'eth-0xdac17f958d2ee523a2206206994597c13d831ec7.omft.near',
+    USDT_DECIMALS: 6,
 
     MAX_BTC_INVENTORY: parseFloat(process.env.MAX_BTC_INVENTORY || '5.0'),
     MIN_USDT_RESERVE: parseFloat(process.env.MIN_USDT_RESERVE || '2000.0'),
