@@ -192,6 +192,25 @@
         .badge.pending { background: var(--blue); color: #fff; }
         .badge.expired { background: var(--yellow); color: #000; }
 
+        .legend {
+            display: flex;
+            gap: 16px;
+            font-size: 0.85em;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: var(--muted);
+        }
+        .legend-item .badge {
+            font-size: 0.75em;
+            padding: 2px 5px;
+        }
+        @media (max-width: 800px) {
+            .legend { display: none; }
+        }
+
         .amount { font-family: monospace; }
         .timing { font-family: monospace; font-size: 0.85em; }
         .timing.fast { color: var(--green); }
@@ -443,7 +462,14 @@
     </div>
 
     <div class="section">
-        <div class="section-title">Recent Quotes</div>
+        <div class="section-title" style="display: flex; justify-content: space-between; align-items: center;">
+            <span>Recent Quotes</span>
+            <div class="legend">
+                <span class="legend-item"><span class="badge won">WON</span> Quote accepted & hedged</span>
+                <span class="legend-item"><span class="badge lost">LOST</span> Expired, cancelled, or another solver won</span>
+                <span class="legend-item"><span class="badge pending">PENDING</span> Awaiting settlement</span>
+            </div>
+        </div>
         <table class="quote-table">
             <thead>
                 <tr>
