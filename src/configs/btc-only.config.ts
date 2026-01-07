@@ -44,10 +44,10 @@ export const BTC_ONLY_CONFIG = {
         return config?.decimals ?? 8;
     },
 
-    // Supported USD stablecoins (USDT and USDC)
+    // Supported USD stablecoins (USDT only for now - bootstrapping with limited capital)
+    // To re-enable USDC, add: { id: 'eth-0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48.omft.near', symbol: 'USDC', decimals: 6 }
     USD_TOKENS: [
         { id: 'eth-0xdac17f958d2ee523a2206206994597c13d831ec7.omft.near', symbol: 'USDT', decimals: 6 },
-        { id: 'eth-0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48.omft.near', symbol: 'USDC', decimals: 6 },
     ] as TokenConfig[],
 
     // Helper to check if a token is a supported USD stablecoin

@@ -105,6 +105,7 @@ async function main() {
         hedgerService.stop();
         cronService.stop();
         apiService.stop();
+        hlService.stopHealthCheck();
         process.exit(0);
     };
 
@@ -178,6 +179,16 @@ async function connectToBusWithRetry(
 
             const t1 = performance.now();
 
+            // Reject exact_amount_out quotes - not yet supported
+            // (exact_amount_out requires inverse pricing logic)
+            if (!quoteData.exact_amount_in && quoteData.exact_amount_out) {
+                // Log occasionally to track if we're missing volume
+                if (Math.random() < 0.01) { // 1% sample rate to avoid log spam
+                    console.log(`[DEBUG] Skipping exact_amount_out quote: ${quoteData.exact_amount_out}`);
+                }
+                return;
+            }
+
             // Strip nep141: prefix from token IDs
             const stripPrefix = (tokenId: string) => tokenId.replace(/^nep\d+:/, '');
 
@@ -185,7 +196,7 @@ async function connectToBusWithRetry(
             const req = {
                 token_in: stripPrefix(quoteData.defuse_asset_identifier_in),
                 token_out: stripPrefix(quoteData.defuse_asset_identifier_out),
-                amount_in: quoteData.exact_amount_in || quoteData.exact_amount_out
+                amount_in: quoteData.exact_amount_in
             };
 
             // Validate Token Support - accept any supported BTC token paired with any USD stablecoin

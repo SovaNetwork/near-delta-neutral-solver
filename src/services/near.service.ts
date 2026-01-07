@@ -13,15 +13,20 @@ export class NearService {
     constructor() { }
 
     async init() {
-        const keyStore = new keyStores.InMemoryKeyStore();
-        if (NEAR_CONFIG.SOLVER_PRIVATE_KEY) {
-            try {
-                const keyPair = KeyPair.fromString(NEAR_CONFIG.SOLVER_PRIVATE_KEY as any);
-                await keyStore.setKey(NEAR_CONFIG.networkId, NEAR_CONFIG.SOLVER_ID, keyPair);
-            } catch (e) {
-                console.warn("Invalid SOLVER_PRIVATE_KEY, proceeding without signing capability.");
-            }
+        if (!NEAR_CONFIG.SOLVER_PRIVATE_KEY) {
+            throw new Error("SOLVER_PRIVATE_KEY is required but not set");
         }
+
+        const keyStore = new keyStores.InMemoryKeyStore();
+        
+        let keyPair: KeyPair;
+        try {
+            keyPair = KeyPair.fromString(NEAR_CONFIG.SOLVER_PRIVATE_KEY as any);
+        } catch (e) {
+            throw new Error(`Invalid SOLVER_PRIVATE_KEY format: ${e instanceof Error ? e.message : String(e)}`);
+        }
+
+        await keyStore.setKey(NEAR_CONFIG.networkId, NEAR_CONFIG.SOLVER_ID, keyPair);
 
         this.near = await connect({
             ...NEAR_CONFIG,
@@ -33,6 +38,10 @@ export class NearService {
         // Pre-load the key pair for faster signing
         const signerKeyStore = (this.near.connection.signer as any).keyStore;
         this.keyPair = await signerKeyStore.getKey(NEAR_CONFIG.networkId, NEAR_CONFIG.SOLVER_ID);
+
+        if (!this.keyPair) {
+            throw new Error("Failed to load keypair after initialization - this should not happen");
+        }
 
         console.log(`NearService initialized for ${NEAR_CONFIG.SOLVER_ID}`);
     }

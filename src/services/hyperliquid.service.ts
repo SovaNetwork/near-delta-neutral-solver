@@ -17,7 +17,7 @@ interface ClearinghouseSnapshot {
 export class HyperliquidService {
     private infoClient: InfoClient;
     private exchangeClient: ExchangeClient | undefined;
-    private subClient: SubscriptionClient;
+    private subClient: SubscriptionClient | null = null;
 
     private wallet: Wallet | undefined;
     private assetToIndexMap: Map<string, number> = new Map();
@@ -33,6 +33,12 @@ export class HyperliquidService {
     private readonly CACHE_TTL_MS = 10000;
     private readonly FUNDING_CACHE_TTL_MS = 60000;
 
+    // Orderbook subscription health monitoring
+    private readonly ORDERBOOK_HEALTH_CHECK_INTERVAL_MS = 10000; // Check every 10s
+    private readonly ORDERBOOK_MAX_IDLE_MS = 30000; // Resubscribe if no updates for 30s
+    private orderbookHealthInterval: NodeJS.Timeout | null = null;
+    private isResubscribing: boolean = false;
+
     constructor() {
         this.isMainnet = process.env.HYPERLIQUID_MAINNET !== 'false';
         const isTestnet = !this.isMainnet;
@@ -44,9 +50,6 @@ export class HyperliquidService {
         const httpTransport = new HttpTransport({ isTestnet });
         this.infoClient = new InfoClient({ transport: httpTransport });
 
-        const wsTransport = new WebSocketTransport({ isTestnet });
-        this.subClient = new SubscriptionClient({ transport: wsTransport });
-
         const privateKey = process.env.HYPERLIQUID_PRIVATE_KEY;
         if (privateKey) {
             this.wallet = new Wallet(privateKey);
@@ -57,6 +60,12 @@ export class HyperliquidService {
         } else {
             console.warn("No Hyperliquid Private Key found. Execution disabled.");
         }
+    }
+
+    private createSubscriptionClient(): SubscriptionClient {
+        const isTestnet = !this.isMainnet;
+        const wsTransport = new WebSocketTransport({ isTestnet });
+        return new SubscriptionClient({ transport: wsTransport });
     }
 
     async init() {
@@ -88,9 +97,19 @@ export class HyperliquidService {
         console.log(`Hyperliquid Connected. ${this.coin} Asset Index: ${this.assetIndex}`);
 
         // 2. Subscribe to L2 Book and wait for first data
+        await this.subscribeToOrderbook();
+
+        // 3. Start health monitoring
+        this.startOrderbookHealthCheck();
+    }
+
+    private async subscribeToOrderbook(): Promise<void> {
+        // Create fresh subscription client
+        this.subClient = this.createSubscriptionClient();
+
         await new Promise<void>((resolve) => {
             let initialDataReceived = false;
-            this.subClient.l2Book({ coin: this.coin }, (data: any) => {
+            this.subClient!.l2Book({ coin: this.coin }, (data: any) => {
                 if (data && data.levels) {
                     this.l2Book = { levels: data.levels };
                     this.lastBookUpdateMs = Date.now();
@@ -103,6 +122,69 @@ export class HyperliquidService {
             });
         });
         console.log(`Subscribed to L2 Book for ${this.coin}`);
+    }
+
+    private startOrderbookHealthCheck(): void {
+        if (this.orderbookHealthInterval) {
+            clearInterval(this.orderbookHealthInterval);
+        }
+
+        this.orderbookHealthInterval = setInterval(() => {
+            this.checkOrderbookHealth();
+        }, this.ORDERBOOK_HEALTH_CHECK_INTERVAL_MS);
+
+        console.log(`Orderbook health check started (every ${this.ORDERBOOK_HEALTH_CHECK_INTERVAL_MS / 1000}s)`);
+    }
+
+    private async checkOrderbookHealth(): Promise<void> {
+        const now = Date.now();
+        const timeSinceLastUpdate = now - this.lastBookUpdateMs;
+
+        if (timeSinceLastUpdate > this.ORDERBOOK_MAX_IDLE_MS) {
+            console.warn(`[Hyperliquid] Orderbook stale for ${(timeSinceLastUpdate / 1000).toFixed(1)}s - resubscribing...`);
+            await this.resubscribeToOrderbook();
+        }
+    }
+
+    private async resubscribeToOrderbook(): Promise<void> {
+        if (this.isResubscribing) {
+            console.log('[Hyperliquid] Resubscription already in progress, skipping...');
+            return;
+        }
+
+        this.isResubscribing = true;
+
+        try {
+            // Close existing subscription client if it exists
+            if (this.subClient) {
+                try {
+                    // The library may not have a close method, so we just null it
+                    this.subClient = null;
+                } catch (e) {
+                    // Ignore close errors
+                }
+            }
+
+            // Small delay before reconnecting
+            await new Promise(r => setTimeout(r, 1000));
+
+            // Resubscribe
+            await this.subscribeToOrderbook();
+            console.log('[Hyperliquid] Successfully resubscribed to orderbook');
+        } catch (e) {
+            console.error('[Hyperliquid] Failed to resubscribe to orderbook:', e);
+            // Will retry on next health check
+        } finally {
+            this.isResubscribing = false;
+        }
+    }
+
+    stopHealthCheck(): void {
+        if (this.orderbookHealthInterval) {
+            clearInterval(this.orderbookHealthInterval);
+            this.orderbookHealthInterval = null;
+            console.log('Orderbook health check stopped');
+        }
     }
 
     getHedgePrice(side: 'bid' | 'ask', size: number): number {
