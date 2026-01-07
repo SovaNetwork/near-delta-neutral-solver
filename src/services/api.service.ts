@@ -48,24 +48,34 @@ export class ApiService {
                     };
                 });
 
-                const [btcBalances, spotUsdtBN, perpPos, availableMargin] = await Promise.all([
+                // Fetch all USD stablecoin balances in parallel
+                const usdBalancePromises = BTC_ONLY_CONFIG.USD_TOKENS.map(async token => {
+                    const balBN = await this.nearService.getBalance(token.id);
+                    return {
+                        tokenId: token.id,
+                        symbol: token.symbol,
+                        balance: balBN.div(Math.pow(10, token.decimals)).toNumber()
+                    };
+                });
+
+                const [btcBalances, usdBalances, perpPos, availableMargin] = await Promise.all([
                     Promise.all(btcBalancePromises),
-                    this.nearService.getBalance(BTC_ONLY_CONFIG.USDT_TOKEN_ID),
+                    Promise.all(usdBalancePromises),
                     this.hlService.getBtcPosition(),
                     this.hlService.getAvailableMargin()
                 ]);
 
-                const spotUsdt = spotUsdtBN.div(1e6).toNumber();
                 const totalSpotBtc = btcBalances.reduce((sum, b) => sum + b.balance, 0);
+                const totalSpotUsd = usdBalances.reduce((sum, b) => sum + b.balance, 0);
                 const netDelta = totalSpotBtc + perpPos;
 
                 const snapshot = {
-                    // NEAR Intents balances - multi-BTC support
+                    // NEAR Intents balances - multi-token support
                     nearIntents: {
                         btcBalances,
                         totalBtc: totalSpotBtc,
-                        usdt: spotUsdt,
-                        usdtTokenId: BTC_ONLY_CONFIG.USDT_TOKEN_ID
+                        usdBalances,
+                        totalUsd: totalSpotUsd,
                     },
                     // Hyperliquid positions
                     hyperliquid: {
@@ -76,7 +86,7 @@ export class ApiService {
                     netDelta,
                     // Legacy fields for backwards compat
                     spotBtc: totalSpotBtc,
-                    spotUsdt,
+                    spotUsdt: totalSpotUsd,
                     perpPosition: perpPos,
                     availableMargin,
                     timestamp: new Date().toISOString()

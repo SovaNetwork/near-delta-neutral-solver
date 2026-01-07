@@ -9,7 +9,8 @@ export interface RiskSnapshot {
     fundingRate: number;
     btcBalances: Map<string, number>;  // tokenId -> balance
     totalBtcBalance: number;           // sum of all BTC types
-    usdtBalance: number;
+    usdBalances: Map<string, number>;  // tokenId -> balance
+    totalUsdBalance: number;           // sum of all USD stablecoins
 }
 
 export class InventoryStateService {
@@ -52,20 +53,42 @@ export class InventoryStateService {
                 }))
             );
 
-            const [clearinghouseSnapshot, fundingRate, usdtBalanceBN, ...btcResults] = await Promise.all([
+            // Fetch balances for all USD stablecoin types in parallel
+            const usdBalancePromises = BTC_ONLY_CONFIG.USD_TOKENS.map(token =>
+                this.nearService.getBalance(token.id).then(bal => ({
+                    tokenId: token.id,
+                    balance: bal,
+                    decimals: token.decimals
+                }))
+            );
+
+            const [clearinghouseSnapshot, fundingRate, ...tokenResults] = await Promise.all([
                 this.hyperliquidService.refreshClearinghouseState(),
                 this.hyperliquidService.getFundingRate(),
-                this.nearService.getBalance(BTC_ONLY_CONFIG.USDT_TOKEN_ID),
                 ...btcBalancePromises,
+                ...usdBalancePromises,
             ]);
 
-            // Build balance map and calculate total using per-token decimals
+            // Split results back into BTC and USD
+            const btcResults = tokenResults.slice(0, BTC_ONLY_CONFIG.BTC_TOKENS.length);
+            const usdResults = tokenResults.slice(BTC_ONLY_CONFIG.BTC_TOKENS.length);
+
+            // Build BTC balance map and calculate total
             const btcBalances = new Map<string, number>();
             let totalBtcBalance = 0;
             for (const result of btcResults) {
                 const balance = result.balance.div(Math.pow(10, result.decimals)).toNumber();
                 btcBalances.set(result.tokenId, balance);
                 totalBtcBalance += balance;
+            }
+
+            // Build USD balance map and calculate total
+            const usdBalances = new Map<string, number>();
+            let totalUsdBalance = 0;
+            for (const result of usdResults) {
+                const balance = result.balance.div(Math.pow(10, result.decimals)).toNumber();
+                usdBalances.set(result.tokenId, balance);
+                totalUsdBalance += balance;
             }
 
             this.riskSnapshot = {
@@ -75,7 +98,8 @@ export class InventoryStateService {
                 fundingRate,
                 btcBalances,
                 totalBtcBalance,
-                usdtBalance: usdtBalanceBN.div(1e6).toNumber(),
+                usdBalances,
+                totalUsdBalance,
             };
 
             this.cachedDirection = this.computeDirection();
@@ -98,7 +122,7 @@ export class InventoryStateService {
         }
 
         const canBuyBtc =
-            snap.usdtBalance > BTC_ONLY_CONFIG.MIN_USDT_RESERVE &&
+            snap.totalUsdBalance > BTC_ONLY_CONFIG.MIN_USDT_RESERVE &&
             snap.totalBtcBalance < BTC_ONLY_CONFIG.MAX_BTC_INVENTORY;
 
         const canSellBtc = snap.totalBtcBalance > BTC_ONLY_CONFIG.MIN_TRADE_SIZE_BTC;

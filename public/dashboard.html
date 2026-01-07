@@ -344,12 +344,14 @@
                 </div>
                 <div class="balance-value green" id="near-btc-total">-</div>
             </div>
-            <div class="balance-row">
+            <div id="usd-balances-container" style="margin-top: 12px; border-top: 1px solid var(--border); padding-top: 8px;">
+                <!-- USD balances will be dynamically inserted here -->
+            </div>
+            <div class="balance-row" style="border-top: 1px solid var(--border); margin-top: 4px; padding-top: 8px;">
                 <div class="balance-label">
-                    <span class="token">USDT</span>
-                    <span class="chain">ETH Bridge</span>
+                    <span class="token" style="font-weight: bold;">Total USD</span>
                 </div>
-                <div class="balance-value" id="near-usdt">-</div>
+                <div class="balance-value green" id="near-usd-total">-</div>
             </div>
         </div>
 
@@ -562,8 +564,8 @@
                 if (posRes.ok) {
                     const pos = await posRes.json();
 
-                    // Route badge - show all supported BTC types
-                    document.getElementById('route-badge').textContent = 'BTC/wBTC/cbBTC ↔ USDT';
+                    // Route badge - show all supported token types
+                    document.getElementById('route-badge').textContent = 'BTC/wBTC/cbBTC ↔ USDT/USDC';
 
                     // NEAR Intents - render multiple BTC balances
                     const btcContainer = document.getElementById('btc-balances-container');
@@ -582,7 +584,24 @@
                     }
                     
                     document.getElementById('near-btc-total').textContent = (pos.nearIntents?.totalBtc || pos.spotBtc || 0).toFixed(8);
-                    document.getElementById('near-usdt').textContent = '$' + (pos.nearIntents?.usdt || pos.spotUsdt || 0).toFixed(2);
+
+                    // NEAR Intents - render multiple USD balances
+                    const usdContainer = document.getElementById('usd-balances-container');
+                    const usdBalances = pos.nearIntents?.usdBalances || [];
+                    
+                    if (usdBalances.length > 0) {
+                        usdContainer.innerHTML = usdBalances.map(b => `
+                            <div class="balance-row">
+                                <div class="balance-label">
+                                    <span class="token">${b.symbol}</span>
+                                    <span class="chain">${getChainFromTokenId(b.tokenId)}</span>
+                                </div>
+                                <div class="balance-value ${b.balance > 0 ? 'green' : ''}">$${b.balance.toFixed(2)}</div>
+                            </div>
+                        `).join('');
+                    }
+                    
+                    document.getElementById('near-usd-total').textContent = '$' + (pos.nearIntents?.totalUsd || pos.spotUsdt || 0).toFixed(2);
 
                     // Hyperliquid
                     const perpPos = pos.hyperliquid?.perpPosition ?? pos.perpPosition ?? 0;

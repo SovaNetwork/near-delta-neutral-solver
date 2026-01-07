@@ -44,14 +44,28 @@ export class CronService {
                 }))
             );
 
-            const [spotUsdtBN, perpPos, availableMargin, ...btcResults] = await Promise.all([
-                this.nearService.getBalance(BTC_ONLY_CONFIG.USDT_TOKEN_ID),
+            // Fetch all USD stablecoin balances in parallel
+            const usdBalancePromises = BTC_ONLY_CONFIG.USD_TOKENS.map(token =>
+                this.nearService.getBalance(token.id).then(bal => ({
+                    tokenId: token.id,
+                    balance: bal,
+                    decimals: token.decimals,
+                    symbol: token.symbol
+                }))
+            );
+
+            const [perpPos, availableMargin, ...tokenResults] = await Promise.all([
                 this.hlService.getBtcPosition(),
                 this.hlService.getAvailableMargin(),
-                ...btcBalancePromises
+                ...btcBalancePromises,
+                ...usdBalancePromises
             ]);
 
-            // Calculate total spot BTC across all types using per-token decimals
+            // Split results
+            const btcResults = tokenResults.slice(0, BTC_ONLY_CONFIG.BTC_TOKENS.length);
+            const usdResults = tokenResults.slice(BTC_ONLY_CONFIG.BTC_TOKENS.length);
+
+            // Calculate total spot BTC across all types
             let totalSpotBtc = 0;
             const btcBreakdown: string[] = [];
             for (const result of btcResults) {
@@ -62,14 +76,25 @@ export class CronService {
                 }
             }
 
-            const spotUsdt = spotUsdtBN.div(1e6).toNumber();
+            // Calculate total USD across all stablecoins
+            let totalSpotUsd = 0;
+            const usdBreakdown: string[] = [];
+            for (const result of usdResults) {
+                const balance = result.balance.div(Math.pow(10, result.decimals)).toNumber();
+                totalSpotUsd += balance;
+                if (balance > 0) {
+                    usdBreakdown.push(`${result.symbol}: $${balance.toFixed(2)}`);
+                }
+            }
+
             const netDelta = totalSpotBtc + perpPos;
 
             console.log(`[Drift Check] Spot BTC: ${totalSpotBtc.toFixed(8)} (${btcBreakdown.join(', ') || 'none'}), Perp: ${perpPos}, Net Delta: ${netDelta}`);
+            console.log(`[Drift Check] Spot USD: $${totalSpotUsd.toFixed(2)} (${usdBreakdown.join(', ') || 'none'})`);
 
             this.logger.logPosition({
                 spotBtc: totalSpotBtc,
-                spotUsdt,
+                spotUsdt: totalSpotUsd,
                 perpPosition: perpPos,
                 netDelta,
                 availableMargin
@@ -82,7 +107,7 @@ export class CronService {
                 console.log("[Drift Check] Delta is balanced.");
             }
 
-            const canBuy = spotUsdt > BTC_ONLY_CONFIG.MIN_USDT_RESERVE;
+            const canBuy = totalSpotUsd > BTC_ONLY_CONFIG.MIN_USDT_RESERVE;
             const canSell = totalSpotBtc > BTC_ONLY_CONFIG.MIN_TRADE_SIZE_BTC;
             const canHedge = availableMargin > BTC_ONLY_CONFIG.MIN_MARGIN_THRESHOLD;
 
@@ -90,7 +115,7 @@ export class CronService {
                 console.warn(`[Status] IDLE - Low Hyperliquid Margin: ${availableMargin} (Required: >${BTC_ONLY_CONFIG.MIN_MARGIN_THRESHOLD})`);
             } else if (!canBuy && !canSell) {
                 console.warn(`[Status] IDLE - Low Inventory`);
-                console.warn(`  > USDT: ${spotUsdt} (Required: >${BTC_ONLY_CONFIG.MIN_USDT_RESERVE})`);
+                console.warn(`  > Total USD: $${totalSpotUsd.toFixed(2)} (Required: >$${BTC_ONLY_CONFIG.MIN_USDT_RESERVE})`);
                 console.warn(`  > Total BTC: ${totalSpotBtc} (Required: >${BTC_ONLY_CONFIG.MIN_TRADE_SIZE_BTC})`);
             } else {
                 const modes = [];
