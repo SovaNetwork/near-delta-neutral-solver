@@ -58,35 +58,21 @@ async function main() {
     const inventoryManager = new InventoryStateService(nearService, hlService);
     const quoterService = new QuoterService(inventoryManager, hlService, nearService, logger);
     const hedgerService = new HedgerService(nearService, hlService, logger);
-    const cronService = new CronService(nearService, hlService, logger);
+    const cronService = new CronService(nearService, hlService, logger, inventoryManager);
     const apiService = new ApiService(hedgerService, hlService, nearService, logger, port);
+
+    // Pre-warm risk snapshot before starting services
+    console.log("Pre-warming risk snapshot...");
+    await inventoryManager.refreshRiskSnapshot();
+    if (!inventoryManager.isSnapshotFresh()) {
+        console.error("CRITICAL: Failed to initialize risk snapshot. Exiting.");
+        process.exit(1);
+    }
+    console.log("Risk snapshot initialized successfully.");
 
     hedgerService.start();
     cronService.start();
     apiService.start();
-
-    // Pre-warm caches to make first quotes fast
-    console.log("Pre-warming caches...");
-    const warmCaches = async () => {
-        try {
-            await Promise.all([
-                inventoryManager.getQuoteDirection(),
-                hlService.getAvailableMargin(),
-                hlService.getBtcPosition(),
-                hlService.getFundingRate()
-            ]);
-        } catch (e) {
-            console.warn("Cache warming failed:", e);
-        }
-    };
-
-    await warmCaches();
-    console.log("Caches pre-warmed successfully.");
-
-    // Keep caches warm with periodic refresh every 15 seconds
-    const cacheWarmerInterval = setInterval(() => {
-        warmCaches(); // Run in background, don't await
-    }, 15000);
 
     const ctx: SolverContext = {
         ws: null,
@@ -102,7 +88,6 @@ async function main() {
             ctx.ws.close();
             console.log("WebSocket closed.");
         }
-        clearInterval(cacheWarmerInterval);
         hedgerService.stop();
         cronService.stop();
         apiService.stop();
@@ -199,7 +184,7 @@ async function connectToBusWithRetry(
 
             const t2 = performance.now();
 
-            const quote = await quoterService.getQuote(req);
+            const quote = quoterService.getQuote(req);
             const t3 = performance.now();
 
             if (quote) {

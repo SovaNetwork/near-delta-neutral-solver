@@ -1,66 +1,125 @@
 import { NearService } from './near.service';
 import { HyperliquidService } from './hyperliquid.service';
 import { BTC_ONLY_CONFIG } from '../configs/btc-only.config';
-import BigNumber from 'bignumber.js';
+
+export interface RiskSnapshot {
+    updatedAt: number;
+    margin: number;
+    btcPos: number;
+    fundingRate: number;
+    btcBalance: number;
+    usdtBalance: number;
+}
 
 export class InventoryStateService {
     private emergencyMode = false;
     private cachedDirection: 'BUY_BTC_ONLY' | 'SELL_BTC_ONLY' | 'BOTH' | 'NONE' = 'NONE';
-    private lastCacheTime = 0;
-    private readonly CACHE_TTL_MS = 10000; // Cache for 10 seconds (faster reactions to inventory changes)
+    private riskSnapshot: RiskSnapshot | null = null;
+    private readonly SNAPSHOT_MAX_AGE_MS = 30000;
+    private refreshing = false;
 
     constructor(
         private nearService: NearService,
         private hyperliquidService: HyperliquidService
-    ) { }
+    ) {}
 
     setEmergencyMode(enabled: boolean) {
         this.emergencyMode = enabled;
         if (enabled) console.warn("!!! EMERGENCY MODE ENABLED - SWITCHING TO SELL ONLY !!!");
     }
 
-    async getQuoteDirection(): Promise<'BUY_BTC_ONLY' | 'SELL_BTC_ONLY' | 'BOTH' | 'NONE'> {
+    getRiskSnapshot(): RiskSnapshot | null {
+        return this.riskSnapshot;
+    }
+
+    isSnapshotFresh(): boolean {
+        if (!this.riskSnapshot) return false;
+        return Date.now() - this.riskSnapshot.updatedAt < this.SNAPSHOT_MAX_AGE_MS;
+    }
+
+    async refreshRiskSnapshot(): Promise<void> {
+        if (this.refreshing) return;
+        this.refreshing = true;
+
+        try {
+            const [margin, btcPos, fundingRate, btcBalanceBN, usdtBalanceBN] = await Promise.all([
+                this.hyperliquidService.getAvailableMargin(),
+                this.hyperliquidService.getBtcPosition(),
+                this.hyperliquidService.getFundingRate(),
+                this.nearService.getBalance(BTC_ONLY_CONFIG.BTC_TOKEN_ID),
+                this.nearService.getBalance(BTC_ONLY_CONFIG.USDT_TOKEN_ID),
+            ]);
+
+            this.riskSnapshot = {
+                updatedAt: Date.now(),
+                margin,
+                btcPos,
+                fundingRate,
+                btcBalance: btcBalanceBN.div(1e8).toNumber(),
+                usdtBalance: usdtBalanceBN.div(1e6).toNumber(),
+            };
+
+            this.cachedDirection = this.computeDirection();
+        } catch (e) {
+            console.error("Failed to refresh risk snapshot:", e);
+        } finally {
+            this.refreshing = false;
+        }
+    }
+
+    private computeDirection(): 'BUY_BTC_ONLY' | 'SELL_BTC_ONLY' | 'BOTH' | 'NONE' {
         if (this.emergencyMode) return 'SELL_BTC_ONLY';
 
-        // Return cached result if still valid
-        const now = Date.now();
-        if (now - this.lastCacheTime < this.CACHE_TTL_MS) {
-            return this.cachedDirection;
-        }
+        const snap = this.riskSnapshot;
+        if (!snap) return 'NONE';
 
-        // Parallelize all balance and margin checks
-        const [margin, btcBalanceBN, usdtBalanceBN] = await Promise.all([
-            this.hyperliquidService.getAvailableMargin(),
-            this.nearService.getBalance(BTC_ONLY_CONFIG.BTC_TOKEN_ID),
-            this.nearService.getBalance(BTC_ONLY_CONFIG.USDT_TOKEN_ID)
-        ]);
-
-        if (margin < BTC_ONLY_CONFIG.MIN_MARGIN_THRESHOLD) {
-            console.warn(`Low Margin: ${margin}. Halting Quotes.`);
-            this.cachedDirection = 'NONE';
-            this.lastCacheTime = now;
+        if (snap.margin < BTC_ONLY_CONFIG.MIN_MARGIN_THRESHOLD) {
+            console.warn(`Low Margin: ${snap.margin}. Halting Quotes.`);
             return 'NONE';
         }
 
-        // Convert to float (assuming 8 decimals for BTC, 6 for USDT)
-        const btcBalance = btcBalanceBN.div(1e8).toNumber();
-        const usdtBalance = usdtBalanceBN.div(1e6).toNumber();
+        const canBuyBtc =
+            snap.usdtBalance > BTC_ONLY_CONFIG.MIN_USDT_RESERVE &&
+            snap.btcBalance < BTC_ONLY_CONFIG.MAX_BTC_INVENTORY;
 
-        const canBuyBtc = usdtBalanceBN.gt(new BigNumber(BTC_ONLY_CONFIG.MIN_USDT_RESERVE).multipliedBy(1e6)) &&
-            btcBalanceBN.lt(new BigNumber(BTC_ONLY_CONFIG.MAX_BTC_INVENTORY).multipliedBy(1e8));
+        const canSellBtc = snap.btcBalance > BTC_ONLY_CONFIG.MIN_TRADE_SIZE_BTC;
 
-        const canSellBtc = btcBalanceBN.gt(new BigNumber(BTC_ONLY_CONFIG.MIN_TRADE_SIZE_BTC).multipliedBy(1e8));
+        if (canBuyBtc && canSellBtc) return 'BOTH';
+        if (canBuyBtc) return 'BUY_BTC_ONLY';
+        if (canSellBtc) return 'SELL_BTC_ONLY';
+        return 'NONE';
+    }
 
-        // Determine direction and cache it
-        let direction: 'BUY_BTC_ONLY' | 'SELL_BTC_ONLY' | 'BOTH' | 'NONE';
-        if (canBuyBtc && canSellBtc) direction = 'BOTH';
-        else if (canBuyBtc) direction = 'BUY_BTC_ONLY';
-        else if (canSellBtc) direction = 'SELL_BTC_ONLY';
-        else direction = 'NONE';
+    getQuoteDirection(): 'BUY_BTC_ONLY' | 'SELL_BTC_ONLY' | 'BOTH' | 'NONE' {
+        if (this.emergencyMode) return 'SELL_BTC_ONLY';
 
-        this.cachedDirection = direction;
-        this.lastCacheTime = now;
+        if (!this.isSnapshotFresh()) {
+            console.warn("Risk snapshot stale or missing – pausing quotes");
+            return 'NONE';
+        }
 
-        return direction;
+        return this.cachedDirection;
+    }
+
+    checkPositionCapacity(direction: 'short' | 'long', sizeBtc: number): boolean {
+        const snap = this.riskSnapshot;
+        if (!snap) {
+            console.warn("No risk snapshot available for position capacity check");
+            return false;
+        }
+
+        const currentPos = snap.btcPos;
+        let projectedPos = currentPos;
+        projectedPos += direction === 'short' ? -sizeBtc : sizeBtc;
+
+        if (Math.abs(projectedPos) > BTC_ONLY_CONFIG.MAX_BTC_INVENTORY) {
+            console.warn(`[RISK] Trade size ${sizeBtc} would exceed max inventory. Projected: ${projectedPos}, Max: ${BTC_ONLY_CONFIG.MAX_BTC_INVENTORY}`);
+            return false;
+        }
+        return true;
+    }
+
+    getFundingRate(): number {
+        return this.riskSnapshot?.fundingRate ?? 0;
     }
 }

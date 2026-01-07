@@ -1,183 +1,393 @@
-# NEAR Delta-Neutral Solver (BTC/USDT)
+# NEAR Delta-Neutral Solver
 
-A professional NEAR Intents solver implementing a **Delta-Neutral Hedging Strategy** using **Hyperliquid**.
+A high-performance NEAR Intents solver implementing a delta-neutral hedging strategy using Hyperliquid perpetuals.
 
-## 🚀 Overview
+## Overview
 
-This solver provides liquidity for **BTC <> USDT** swaps on NEAR. It operates on a "high spread, zero delta" philosophy with a **stochastic inventory model**:
+This solver provides liquidity for **BTC ↔ USDT** swaps on NEAR Protocol's Intents system. It operates on a "wide spread, zero delta" philosophy:
 
-1.  **Quote**: Offers to Buy or Sell BTC based on current inventory and profitability.
-    *   **Buy BTC**: Allowed if `Total BTC <> Max Cap` and `USDT > Min Reserve`.
-    *   **Sell BTC**: Allowed if `Total BTC > Min Trade Size`.
-2.  **Settle**: Receives Spot BTC (or USDT) on NEAR.
-3.  **Hedge**: Immediately executes the inverse trade (Short or Long) on Hyperliquid to neutralize price exposure.
+1. **Quote**: Respond to quote requests from the Solver Bus with competitive pricing derived from Hyperliquid's orderbook
+2. **Settle**: Receive spot BTC (or USDT) on NEAR when the user accepts the quote
+3. **Hedge**: Immediately execute the inverse perpetual trade on Hyperliquid to neutralize price exposure
 
----
+The solver maintains delta neutrality by holding offsetting positions: spot BTC on NEAR balanced by an equivalent short perpetual position on Hyperliquid (or vice versa for sells).
 
-## 🏗 System Architecture
+## Architecture
 
-The solver is built with Node.js/TypeScript and consists of the following core services:
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              NEAR Intents Solver                            │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐                   │
+│  │  Solver Bus  │◄──►│   app.ts     │◄──►│QuoterService │                   │
+│  │  (WebSocket) │    │  (main loop) │    │ (pricing)    │                   │
+│  └──────────────┘    └──────────────┘    └──────────────┘                   │
+│                             │                   │                           │
+│                             ▼                   ▼                           │
+│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐                   │
+│  │HedgerService │◄───│  Inventory   │◄───│ Hyperliquid  │                   │
+│  │ (settlement) │    │StateService  │    │   Service    │                   │
+│  └──────────────┘    │(risk state)  │    │ (orderbook)  │                   │
+│         │            └──────────────┘    └──────────────┘                   │
+│         ▼                   ▲                   │                           │
+│  ┌──────────────┐    ┌──────────────┐          │                           │
+│  │ NearService  │    │ CronService  │──────────┘                           │
+│  │  (balances)  │    │(bg refresh)  │                                       │
+│  └──────────────┘    └──────────────┘                                       │
+│                                                                             │
+│  ┌──────────────┐    ┌──────────────┐                                       │
+│  │  ApiService  │    │LoggerService │                                       │
+│  │ (dashboard)  │    │  (trades)    │                                       │
+│  └──────────────┘    └──────────────┘                                       │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
-### Core Logic
-*   **`HyperliquidService`**: Connects to Hyperliquid WebSocket for real-time L2 orderbook data and executes hedge orders.
-*   **`QuoterService`**: Calculates quotes based on market depth, spread, and inventory constraints. Signs intents with the solver's private key.
-*   **`HedgerService`**: Detects settlements on NEAR and triggers offsets on Hyperliquid. Tracks quote lifecycles to prevent double-hedging.
-*   **`InventoryStateService`**: Manages inventory limits and directs quote logic based on current holdings.
-*   **`CronService`**: Essential watchdog that monitors "Inventory Drift" (Spot vs Perp divergence) and alerts on issues.
+## Core Services
 
-### Observability Suite (New)
-*   **`LoggerService`**: Centralized structured logging for all trade lifecycle events (`trades.jsonl`) and position snapshots (`positions.jsonl`).
-*   **`ApiService`**: Express.js REST API providing real-time state, statistics, and metrics.
-*   **Web Dashboard**: A real-time UI for visual monitoring of solver operations.
+### `app.ts` - Main Entry Point
 
----
+The main event loop that:
+- Connects to the Solver Bus via WebSocket with exponential backoff reconnection
+- Subscribes to the `quote` stream to receive quote requests
+- Processes incoming quote requests and publishes signed responses
+- Tracks quote lifecycle timing for performance monitoring
 
-## 📊 Observability & Monitoring
+**Quote Flow:**
+1. Receive quote request from Solver Bus
+2. Validate token pair (BTC/USDT only)
+3. Calculate quote price using `QuoterService` (synchronous, ~1ms)
+4. Sign the intent using NEP-413 standard
+5. Publish quote response to relay
+6. Track quote for settlement detection
 
-The solver includes a comprehensive observability suite accessible via a web dashboard and API.
+### `QuoterService`
 
-### 🖥️ Web Dashboard
-**URL**: `http://localhost:3000/dashboard.html` (Default port)
+Calculates competitive quotes with **zero network I/O** in the hot path.
 
-Features:
-*   **Real-time Positions**: Visualizes Spot BTC vs Perp Position and Net Delta.
-*   **Health Status**: Indicators for API and Drift status.
-*   **Recent Activity**: Live feed of Quotes Generated and Hedges Executed.
-*   **One-Click Export**: Download trade history as CSV.
+**Pricing Logic:**
+- Uses real-time L2 orderbook data from Hyperliquid (streamed via WebSocket)
+- Calculates volume-weighted average price (VWAP) for the requested size
+- Applies configurable spread (`TARGET_SPREAD_BIPS`) to the reference price
+- For buys: `finalPrice = referencePrice * (1 - spread)`
+- For sells: `finalPrice = referencePrice * (1 + spread)`
 
-### 🔌 API Endpoints
-The API runs on port `3000` by default.
+**Gating Checks (all synchronous from cached RiskSnapshot):**
+- Inventory direction (can we buy/sell BTC?)
+- Position capacity (would this exceed max inventory?)
+- Funding rate (reject buys if funding is too negative)
+- Margin availability (halt if below threshold)
 
-| Method | Endpoint | Description |
-| :--- | :--- | :--- |
-| `GET` | `/health` | System health status (uptime). |
-| `GET` | `/api/positions` | Current inventory, perp position, margin, and delta. |
-| `GET` | `/api/pending-quotes` | List of quotes currently tracked for settlement. |
-| `GET` | `/api/trades` | Recent trade events (quotes, hedges). |
-| `GET` | `/api/stats` | 24-hour statistics (volume, success rate). |
-| `GET` | `/api/export/trades.csv` | Download full trade history as CSV. |
-| `GET` | `/metrics` | Prometheus-compatible metrics endpoint. |
+### `InventoryStateService`
 
-### 📝 Logs
-Structured logs are written to the `logs/` directory:
-*   `logs/trades.jsonl`: Trade lifecycle events (`QUOTE_GENERATED`, `QUOTE_PUBLISHED`, `HEDGE_EXECUTED`, `HEDGE_FAILED`).
-*   `logs/positions.jsonl`: Periodic snapshots of inventory and margin.
+Manages the centralized `RiskSnapshot` that enables zero-latency quoting.
 
----
+**RiskSnapshot Contents:**
+```typescript
+interface RiskSnapshot {
+    updatedAt: number;      // Timestamp of last refresh
+    margin: number;         // Hyperliquid available margin (USDC)
+    btcPos: number;         // Hyperliquid BTC perpetual position
+    fundingRate: number;    // Current hourly funding rate
+    btcBalance: number;     // NEAR intents BTC balance
+    usdtBalance: number;    // NEAR intents USDT balance
+}
+```
 
-## 🛠 Configuration
+**Key Methods:**
+- `refreshRiskSnapshot()` - Fetches all state in parallel (called every 5s by CronService)
+- `getQuoteDirection()` - Synchronous check: `BUY_BTC_ONLY | SELL_BTC_ONLY | BOTH | NONE`
+- `checkPositionCapacity()` - Synchronous position limit validation
+- `isSnapshotFresh()` - Guard: returns false if snapshot > 30s old (pauses quoting)
 
-Create a `.env` file in the root directory. See `.env.example` for a complete template.
+### `HyperliquidService`
 
-### Key Environment Variables
+Manages connection to Hyperliquid for orderbook data and hedge execution.
 
-**Identity**
-*   `SOLVER_PRIVATE_KEY`: NEAR private key (ed25519) for signing intents.
-*   `SOLVER_ID`: NEAR account ID.
-*   `HYPERLIQUID_PRIVATE_KEY`: Ethereum-style private key for hedging.
-*   `HYPERLIQUID_WALLET_ADDRESS`: Associated wallet address.
+**Real-time Data (WebSocket):**
+- Subscribes to L2 orderbook updates for BTC
+- `getHedgePrice(side, size)` - VWAP calculation from live orderbook
 
-**Strategy Constraints**
-*   `MAX_BTC_INVENTORY`: Maximum BTC to hold (e.g., `5.0`).
-*   `MIN_TRADE_SIZE_BTC`: Minimum quote size (e.g., `0.0001`).
-*   `MAX_TRADE_SIZE_BTC`: Maximum quote size (e.g., `1.0`).
-*   `TARGET_SPREAD_BIPS`: Target spread in basis points (e.g., `200` = 2%).
-*   `DRIFT_THRESHOLD_BTC`: Alert threshold for inventory drift (e.g., `0.001`).
+**Hedge Execution:**
+- `executeHedge(direction, size)` - Places IOC limit order with 5% slippage protection
+- Invalidates position cache after execution
 
-**Network**
-*   `API_PORT`: Port for the API and Dashboard (default `3000`).
-*   `SOLVER_BUS_WS_URL`: WebSocket URL for the Solver Bus.
+**Cached Data (HTTP, refreshed by RiskSnapshot):**
+- Available margin
+- Current BTC perpetual position
+- Funding rate (60s cache, changes slowly)
 
----
+### `HedgerService`
 
-## 📦 Installation & Usage
+Detects settlements on NEAR and triggers hedge execution on Hyperliquid.
 
-### 1. Install Dependencies
+**Settlement Detection:**
+- Polls NEAR contract every 5 seconds
+- Checks if quote nonces have been consumed (via `is_nonce_used`)
+- Processes nonce checks in batches of 3 to avoid RPC rate limits
+
+**Quote Lifecycle:**
+- `trackQuote(nonce, data)` - Register quote after successful publish
+- Quotes expire after 5 minutes if not settled
+- On settlement: execute hedge, log result, remove from tracking
+
+### `CronService`
+
+Background maintenance tasks:
+
+1. **Risk Snapshot Refresh** (every 5s)
+   - Updates `InventoryStateService.riskSnapshot`
+   - Ensures quoting always has fresh risk state
+
+2. **Drift Check** (every 10 minutes)
+   - Compares spot BTC balance vs perpetual position
+   - Alerts if `|netDelta| > DRIFT_THRESHOLD_BTC`
+   - Logs position snapshots for auditing
+
+### `NearService`
+
+NEAR Protocol integration:
+
+- Initializes connection with in-memory keystore
+- Pre-loads keypair for fast signing (~0.1ms vs ~5ms cold)
+- `getBalance(tokenId)` - Fetches intents contract balance (10s cache)
+- `sign(message)` - Signs with Ed25519 keypair
+- `wasNonceUsed(nonce)` - Checks if quote was settled
+
+### `ApiService` & `LoggerService`
+
+**REST API Endpoints:**
+| Endpoint | Description |
+|----------|-------------|
+| `GET /health` | Uptime and health status |
+| `GET /api/positions` | Current inventory, perp position, margin, net delta |
+| `GET /api/pending-quotes` | Quotes awaiting settlement |
+| `GET /api/trades` | Recent trade events |
+| `GET /api/stats` | 24h statistics (volume, win rate, failures) |
+| `GET /api/config` | Current strategy configuration |
+| `GET /api/market` | Hyperliquid orderbook summary and funding |
+| `GET /api/export/trades.csv` | Full trade history export |
+| `GET /metrics` | Prometheus-compatible metrics |
+
+**Structured Logging:**
+- `logs/trades.jsonl` - Trade lifecycle events with timing data
+- `logs/positions.jsonl` - Periodic position snapshots
+
+## Performance Optimizations
+
+### Zero Network I/O in Quote Path
+
+The critical quote path is fully synchronous:
+
+```
+Quote Request → getQuote() → Return
+                   │
+                   ├── Read cached RiskSnapshot (memory)
+                   ├── Read live orderbook (memory, WebSocket-fed)
+                   └── Calculate VWAP + spread (CPU)
+```
+
+**Latency Breakdown (typical):**
+- `quote`: 0.5-2ms (calculation only)
+- `sign`: 0.1-0.5ms (Ed25519, pre-loaded key)
+- `post`: 10-50ms (network RTT to relay)
+- `total`: 15-60ms end-to-end
+
+### Background State Refresh
+
+All remote state is fetched in parallel every 5 seconds:
+```typescript
+const [margin, btcPos, fundingRate, btcBalance, usdtBalance] = await Promise.all([
+    hlService.getAvailableMargin(),
+    hlService.getBtcPosition(),
+    hlService.getFundingRate(),
+    nearService.getBalance(BTC_TOKEN_ID),
+    nearService.getBalance(USDT_TOKEN_ID),
+]);
+```
+
+### Stale Data Protection
+
+If `RiskSnapshot` is older than 30 seconds, `getQuoteDirection()` returns `NONE`, halting all quotes until fresh data is available.
+
+## Configuration
+
+Create a `.env` file from `.env.example`:
+
+```bash
+cp .env.example .env
+```
+
+### Identity
+
+| Variable | Description |
+|----------|-------------|
+| `SOLVER_PRIVATE_KEY` | NEAR Ed25519 private key for signing intents |
+| `SOLVER_ID` | NEAR account ID (e.g., `mysolver.near`) |
+| `HYPERLIQUID_PRIVATE_KEY` | Ethereum private key for Hyperliquid |
+| `HYPERLIQUID_WALLET_ADDRESS` | Ethereum address for Hyperliquid |
+
+### Connectivity
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SOLVER_BUS_WS_URL` | `wss://solver-relay-v2.chaindefuser.com/ws` | Solver Bus WebSocket |
+| `RELAY_AUTH_KEY` | - | Authorization key (if required) |
+| `NEAR_RPC_URL` | `https://near.drpc.org` | NEAR RPC endpoint |
+| `NEAR_NETWORK_ID` | `mainnet` | Network ID |
+| `INTENTS_CONTRACT_ID` | `intents.near` | Intents contract address |
+| `HYPERLIQUID_MAINNET` | `true` | Use mainnet (`false` for testnet) |
+
+### Strategy
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MAX_BTC_INVENTORY` | `5.0` | Maximum BTC to hold before stopping buys |
+| `MIN_USDT_RESERVE` | `2000.0` | Minimum USDT to keep (stop buying if below) |
+| `TARGET_SPREAD_BIPS` | `200` | Spread in basis points (200 = 2%) |
+| `MIN_TRADE_SIZE_BTC` | `0.0001` | Minimum quote size |
+| `MAX_TRADE_SIZE_BTC` | `1.0` | Maximum quote size |
+
+### Risk Management
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MIN_MARGIN_THRESHOLD` | `1000.0` | Halt quoting if HL margin below this |
+| `MIN_HOURLY_FUNDING_RATE` | `-0.0005` | Reject buys if funding worse than -0.05%/hr |
+| `DRIFT_THRESHOLD_BTC` | `0.001` | Alert if spot/perp drift exceeds this |
+
+### Assets
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `BTC_TOKEN_ID` | `base-0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf.omft.near` | cbBTC on Base |
+| `USDT_TOKEN_ID` | `eth-0xdac17f958d2ee523a2206206994597c13d831ec7.omft.near` | USDT on Ethereum |
+
+**Supported BTC Variants:**
+- cbBTC (Base): `base-0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf.omft.near`
+- wBTC (Ethereum): `eth-0x2260fac5e5542a773aa44fbcfedf7c193bc2c599.omft.near`
+- Native BTC: `btc.omft.near`
+
+### Observability
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `API_PORT` | `3000` | API/Dashboard port (use `PORT` on Railway) |
+| `LOGS_DIR` | `./logs` | Directory for trade/position logs |
+
+## Installation & Usage
+
+### Prerequisites
+
+- Node.js 18+
+- NEAR account with intents balance
+- Hyperliquid account with USDC margin
+
+### Install
+
 ```bash
 npm install
 ```
 
-### 2. Build the Project
+### Build
+
 ```bash
 npm run build
 ```
 
-### 3. Start the Solver
+### Run
+
 ```bash
 npm start
 ```
-*   This will start the Solver, API, and Web Dashboard.
-*   Console logs will show "Connected to Solver Bus" and "Hyperliquid Connected".
 
-### 4. Verify Operation
-*   Open `http://localhost:3000/dashboard.html`.
-*   Check `logs/trades.jsonl` to see generated quotes.
+### Verify Operation
 
----
+1. Check console for "Connected to Solver Bus" and "Risk snapshot initialized"
+2. Open `http://localhost:3000/dashboard.html`
+3. Monitor `logs/trades.jsonl` for quote activity
 
-## 🚨 Operational Guide
+## Deployment
 
-### Monitoring for Issues
-1.  **Hedge Failures**: Check the dashboard "Hedge Failures" count or grep logs for `HEDGE_FAILED`.
-2.  **Inventory Drift**: The `CronService` checks drift every 10 minutes. Using the API `/api/positions`, ensure `Net Delta` is near zero.
-3.  **Margin**: Monitor `Available Margin` on the dashboard. Ensure `MIN_MARGIN_THRESHOLD` in config is appropriate.
+### Railway (Recommended)
 
-### Accounting & Reporting
-To generate a monthly report of all trades:
+1. Connect repository to Railway
+2. Set build command: `npm run build`
+3. Set start command: `npm start`
+4. Add all environment variables
+5. **Important**: Set region outside US (e.g., Tokyo, Europe)
+6. Optional: Mount volume at `/data/logs` and set `LOGS_DIR=/data/logs`
+
+### PM2 (VPS/EC2)
+
 ```bash
-curl "http://localhost:3000/api/export/trades.csv" > monthly_report.csv
+# Install PM2
+npm install -g pm2
+
+# Start
+pm2 start ecosystem.config.js
+
+# Monitor
+pm2 monit
+
+# Logs
+pm2 logs near-delta-neutral-solver
 ```
 
-### Emergency Shutdown
-The solver handles `SIGINT` (Ctrl+C) and `SIGTERM` gracefully:
-1.  Stops accepting new quotes.
-2.  Closes WebSocket connections.
-3.  Stops all internal timers.
+## Monitoring
 
----
+### Console Output
 
-## 🚂 Deployment: Railway (Easiest)
+```
+✅ [a1b2c3d4] PUBLISHED | BUY 0.001234 → 123.45 | 45ms
+❌ [e5f6g7h8] REJECTED (solver lost) | SELL 0.005000 → 0.00004812 | 62ms (post: 48ms)
+💰 [a1b2c3d4] SETTLED | executing hedge...
+✅ [a1b2c3d4] HEDGED | short 0.001234 BTC
+```
 
-This approach is simpler than AWS and handles building, running, and restarting automatically.
+### Key Metrics
 
-### 1. Prerequisites
-*   A [Railway](https://railway.app/) account.
-*   Your project pushed to GitHub.
+- **Win Rate**: `quotesPublished / (quotesPublished + quotesRejected)`
+- **Net Delta**: Should be near zero (`spotBtc + perpPosition`)
+- **Hedge Failures**: Should be zero (requires manual intervention)
 
-### 2. Deploy
-1.  **New Project**: Go to Railway dashboard -> "New Project" -> "Deploy from GitHub repo".
-2.  **Select Repo**: Choose this repository.
-3.  **Settings**:
-    *   **Build Command**: `npm run build`
-    *   **Start Command**: `npm start`
-    *   **Variables**:
-        *   Add all keys from `.env`.
-        *   Set `API_PORT` to `PORT` (Railway dynamic port).
-    *   **Region**: Go to Settings -> Service Region. **Ensure it is NOT in the US** (e.g., choose "Asia (Tokyo)" or "Europe").
+### Alerts
 
-### 3. Public Domain (Optional)
-*   Go to **Settings** -> **Networking** -> **Generate Domain**.
-*   This gives you a public URL (e.g., `solver-production.up.railway.app`) to access your dashboard.
+- `[CRITICAL] HIGH INVENTORY DRIFT` - Spot/perp mismatch exceeds threshold
+- `Risk snapshot stale` - Background refresh failing, quoting paused
+- `HEDGE FAILED` - Manual rebalancing required
 
----
+## Project Structure
 
-## ☁️ Production Deployment (AWS EC2)
+```
+src/
+├── app.ts                      # Main entry point and WebSocket handler
+├── configs/
+│   ├── btc-only.config.ts      # Strategy configuration
+│   └── near.config.ts          # NEAR network configuration
+├── interfaces/
+│   └── intents.interface.ts    # NEAR Intents message types
+├── services/
+│   ├── api.service.ts          # REST API and dashboard
+│   ├── cron.service.ts         # Background tasks
+│   ├── hedger.service.ts       # Settlement detection and hedging
+│   ├── hyperliquid.service.ts  # Hyperliquid integration
+│   ├── inventory-manager.service.ts  # Risk state management
+│   ├── logger.service.ts       # Structured logging
+│   ├── near.service.ts         # NEAR Protocol integration
+│   └── quoter.service.ts       # Quote calculation
+└── utils/
+    └── hashing.ts              # NEP-413 serialization and signing
 
-### Recommended Specs
-*   **Instance**: `t3.micro` or `t3.small` (Ubuntu 22.04 LTS).
-*   **Firewall**: Allow Inbound TCP 3000 (if exposing dashboard publicly, otherwise SSH tunnel).
+public/
+└── dashboard.html              # Web monitoring dashboard
 
-### Setup using PM2
-1.  Install PM2: `sudo npm install -g pm2`
-2.  Start:
-    ```bash
-    pm2 start ecosystem.config.js
-    ```
-3.  Monitor:
-    ```bash
-    pm2 monit
-    ```
-4.  Logs:
-    ```bash
-    pm2 logs near-delta-neutral-solver
-    ```
+logs/
+├── trades.jsonl                # Trade lifecycle events
+└── positions.jsonl             # Position snapshots
+```
+
+## License
+
+ISC

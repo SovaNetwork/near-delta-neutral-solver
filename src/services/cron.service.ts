@@ -1,33 +1,39 @@
-
 import { NearService } from './near.service';
 import { HyperliquidService } from './hyperliquid.service';
 import { LoggerService } from './logger.service';
+import { InventoryStateService } from './inventory-manager.service';
 import { BTC_ONLY_CONFIG } from '../configs/btc-only.config';
 
 export class CronService {
-    private interval: NodeJS.Timeout | null = null;
+    private driftInterval: NodeJS.Timeout | null = null;
+    private riskRefreshInterval: NodeJS.Timeout | null = null;
+    private readonly RISK_REFRESH_INTERVAL_MS = 5000;
 
     constructor(
         private nearService: NearService,
         private hlService: HyperliquidService,
-        private logger: LoggerService
-    ) { }
+        private logger: LoggerService,
+        private inventoryManager: InventoryStateService
+    ) {}
 
     start() {
-        // Run every 10 minutes (checking drift)
-        this.interval = setInterval(() => this.checkDrift(), 10 * 60 * 1000);
+        this.driftInterval = setInterval(() => this.checkDrift(), 10 * 60 * 1000);
         console.log("Cron Service Started.");
 
-        // Initial check
         this.checkDrift();
+
+        this.riskRefreshInterval = setInterval(() => {
+            this.inventoryManager.refreshRiskSnapshot().catch(e =>
+                console.warn("Background risk refresh failed:", e)
+            );
+        }, this.RISK_REFRESH_INTERVAL_MS);
+        console.log(`Risk snapshot refresh started (every ${this.RISK_REFRESH_INTERVAL_MS}ms)`);
     }
 
     async checkDrift() {
         try {
             console.log("Running Drift Check...");
-            // Spot Balance (Long) vs Perp Position (Short)
 
-            // Parallelize all balance and position checks
             const [spotBtcBN, spotUsdtBN, perpPos, availableMargin] = await Promise.all([
                 this.nearService.getBalance(BTC_ONLY_CONFIG.BTC_TOKEN_ID),
                 this.nearService.getBalance(BTC_ONLY_CONFIG.USDT_TOKEN_ID),
@@ -39,7 +45,7 @@ export class CronService {
             const spotUsdt = spotUsdtBN.div(1e6).toNumber();
             const netDelta = spotBtc + perpPos;
 
-            console.log(`[Drift Check]Spot: ${spotBtc}, Perp: ${perpPos}, Net Delta: ${netDelta} `);
+            console.log(`[Drift Check] Spot: ${spotBtc}, Perp: ${perpPos}, Net Delta: ${netDelta}`);
 
             this.logger.logPosition({
                 spotBtc,
@@ -56,7 +62,6 @@ export class CronService {
                 console.log("[Drift Check] Delta is balanced.");
             }
 
-            // Readiness Check
             const canBuy = spotUsdt > BTC_ONLY_CONFIG.MIN_USDT_RESERVE;
             const canSell = spotBtc > BTC_ONLY_CONFIG.MIN_TRADE_SIZE_BTC;
             const canHedge = availableMargin > BTC_ONLY_CONFIG.MIN_MARGIN_THRESHOLD;
@@ -80,10 +85,14 @@ export class CronService {
     }
 
     stop() {
-        if (this.interval) {
-            clearInterval(this.interval);
-            this.interval = null;
-            console.log("Cron Service Stopped.");
+        if (this.driftInterval) {
+            clearInterval(this.driftInterval);
+            this.driftInterval = null;
         }
+        if (this.riskRefreshInterval) {
+            clearInterval(this.riskRefreshInterval);
+            this.riskRefreshInterval = null;
+        }
+        console.log("Cron Service Stopped.");
     }
 }
