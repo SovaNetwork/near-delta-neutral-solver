@@ -20,24 +20,26 @@ export class QuoterService {
 
     getQuote(request: QuoteRequest) {
         try {
-            // 1. Validate Assets - accept any supported BTC token paired with USDT
+            // 1. Validate Assets - accept any supported BTC token paired with any USD stablecoin
             const isBtcIn = BTC_ONLY_CONFIG.isBtcToken(request.token_in);
-            const isUsdtIn = request.token_in === BTC_ONLY_CONFIG.USDT_TOKEN_ID;
+            const isUsdIn = BTC_ONLY_CONFIG.isUsdToken(request.token_in);
             const isBtcOut = BTC_ONLY_CONFIG.isBtcToken(request.token_out);
-            const isUsdtOut = request.token_out === BTC_ONLY_CONFIG.USDT_TOKEN_ID;
+            const isUsdOut = BTC_ONLY_CONFIG.isUsdToken(request.token_out);
 
-            if (!((isBtcIn && isUsdtOut) || (isUsdtIn && isBtcOut))) {
+            if (!((isBtcIn && isUsdOut) || (isUsdIn && isBtcOut))) {
                 return undefined;
             }
 
             // 2. Determine if we are Buying or Selling BTC (from user's perspective, we receive BTC)
             const weAreBuyingBtc = isBtcIn;
             const btcTokenId = isBtcIn ? request.token_in : request.token_out;
+            const usdTokenId = isBtcIn ? request.token_out : request.token_in;
 
             // 3. Calculate Price using config decimals
             const btcDecimals = BTC_ONLY_CONFIG.getBtcDecimals(btcTokenId);
-            const decimalsIn = isBtcIn ? btcDecimals : BTC_ONLY_CONFIG.USDT_DECIMALS;
-            const decimalsOut = isBtcOut ? btcDecimals : BTC_ONLY_CONFIG.USDT_DECIMALS;
+            const usdDecimals = BTC_ONLY_CONFIG.getUsdDecimals(usdTokenId);
+            const decimalsIn = isBtcIn ? btcDecimals : usdDecimals;
+            const decimalsOut = isBtcOut ? btcDecimals : usdDecimals;
 
             const amountInFloat = parseFloat(request.amount_in) / Math.pow(10, decimalsIn);
 

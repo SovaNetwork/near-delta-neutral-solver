@@ -188,13 +188,13 @@ async function connectToBusWithRetry(
                 amount_in: quoteData.exact_amount_in || quoteData.exact_amount_out
             };
 
-            // Validate Token Support - accept any supported BTC token paired with USDT
+            // Validate Token Support - accept any supported BTC token paired with any USD stablecoin
             const isTokenInBtc = BTC_ONLY_CONFIG.isBtcToken(req.token_in);
-            const isTokenInUsdt = req.token_in === BTC_ONLY_CONFIG.USDT_TOKEN_ID;
+            const isTokenInUsd = BTC_ONLY_CONFIG.isUsdToken(req.token_in);
             const isTokenOutBtc = BTC_ONLY_CONFIG.isBtcToken(req.token_out);
-            const isTokenOutUsdt = req.token_out === BTC_ONLY_CONFIG.USDT_TOKEN_ID;
+            const isTokenOutUsd = BTC_ONLY_CONFIG.isUsdToken(req.token_out);
 
-            if (!((isTokenInBtc && isTokenOutUsdt) || (isTokenInUsdt && isTokenOutBtc))) {
+            if (!((isTokenInBtc && isTokenOutUsd) || (isTokenInUsd && isTokenOutBtc))) {
                 // Debug: log if we see a BTC-like token that we don't support
                 const looksLikeBtc = (id: string) => 
                     id.toLowerCase().includes('btc') || 
@@ -215,10 +215,12 @@ async function connectToBusWithRetry(
             if (quote) {
                 const isBuyingBtc = BTC_ONLY_CONFIG.isBtcToken(req.token_in);
                 const btcTokenId = isBuyingBtc ? req.token_in : req.token_out;
+                const usdTokenId = isBuyingBtc ? req.token_out : req.token_in;
                 const btcSymbol = BTC_ONLY_CONFIG.getBtcSymbol(btcTokenId);
                 const btcDecimals = BTC_ONLY_CONFIG.getBtcDecimals(btcTokenId);
-                const decimalsIn = isBuyingBtc ? btcDecimals : BTC_ONLY_CONFIG.USDT_DECIMALS;
-                const decimalsOut = isBuyingBtc ? BTC_ONLY_CONFIG.USDT_DECIMALS : btcDecimals;
+                const usdDecimals = BTC_ONLY_CONFIG.getUsdDecimals(usdTokenId);
+                const decimalsIn = isBuyingBtc ? btcDecimals : usdDecimals;
+                const decimalsOut = isBuyingBtc ? usdDecimals : btcDecimals;
                 const amountInFloat = parseFloat(req.amount_in) / Math.pow(10, decimalsIn);
                 const amountOutFloat = parseFloat(quote.amount_out) / Math.pow(10, decimalsOut);
 

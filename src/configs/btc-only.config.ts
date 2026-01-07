@@ -1,8 +1,10 @@
-export interface BtcTokenConfig {
+export interface TokenConfig {
     id: string;
     symbol: string;
     decimals: number;
 }
+
+export type BtcTokenConfig = TokenConfig;
 
 export const BTC_ONLY_CONFIG = {
     BTC_ONLY_MODE: true,
@@ -11,7 +13,8 @@ export const BTC_ONLY_CONFIG = {
     BTC_TOKENS: [
         { id: 'btc.omft.near', symbol: 'BTC', decimals: 8 },
         { id: 'eth-0x2260fac5e5542a773aa44fbcfedf7c193bc2c599.omft.near', symbol: 'wBTC', decimals: 8 },
-        { id: 'base-0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf.omft.near', symbol: 'cbBTC', decimals: 8 },
+        { id: 'eth-0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf.omft.near', symbol: 'cbBTC-ETH', decimals: 8 },
+        { id: 'base-0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf.omft.near', symbol: 'cbBTC-BASE', decimals: 8 },
     ] as BtcTokenConfig[],
 
     // Derived array of token IDs for quick lookup
@@ -41,8 +44,32 @@ export const BTC_ONLY_CONFIG = {
         return config?.decimals ?? 8;
     },
 
-    // USDT configuration
-    USDT_TOKEN_ID: process.env.USDT_TOKEN_ID || 'eth-0xdac17f958d2ee523a2206206994597c13d831ec7.omft.near',
+    // Supported USD stablecoins (USDT and USDC)
+    USD_TOKENS: [
+        { id: 'eth-0xdac17f958d2ee523a2206206994597c13d831ec7.omft.near', symbol: 'USDT', decimals: 6 },
+        { id: 'eth-0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48.omft.near', symbol: 'USDC', decimals: 6 },
+    ] as TokenConfig[],
+
+    // Helper to check if a token is a supported USD stablecoin
+    isUsdToken: (tokenId: string): boolean => {
+        return BTC_ONLY_CONFIG.USD_TOKENS.some(t => t.id === tokenId);
+    },
+
+    // Get USD token config by ID
+    getUsdTokenConfig: (tokenId: string): TokenConfig | undefined => {
+        return BTC_ONLY_CONFIG.USD_TOKENS.find(t => t.id === tokenId);
+    },
+
+    // Get decimals for USD token (defaults to 6)
+    getUsdDecimals: (tokenId: string): number => {
+        const config = BTC_ONLY_CONFIG.getUsdTokenConfig(tokenId);
+        return config?.decimals ?? 6;
+    },
+
+    // Legacy single token ID (for backwards compat, uses first USD token)
+    get USDT_TOKEN_ID(): string {
+        return this.USD_TOKENS[0]?.id ?? 'eth-0xdac17f958d2ee523a2206206994597c13d831ec7.omft.near';
+    },
     USDT_DECIMALS: 6,
 
     MAX_BTC_INVENTORY: parseFloat(process.env.MAX_BTC_INVENTORY || '5.0'),
