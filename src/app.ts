@@ -22,6 +22,10 @@ const SOLVER_BUS_WS = process.env.SOLVER_BUS_WS_URL || 'wss://solver-relay-v2.ch
 // Global retry state for simplicity
 let reconnectAttempts = 0;
 
+// Helper functions hoisted out of WS handler (avoid re-allocation per message)
+const STRIP_PREFIX_REGEX = /^nep\d+:/;
+const stripPrefix = (tokenId: string) => tokenId.replace(STRIP_PREFIX_REGEX, '');
+
 // Context to share mutable WebSocket reference
 interface SolverContext {
     ws: WebSocket | null;
@@ -71,7 +75,7 @@ async function main() {
 
     const inventoryManager = new InventoryStateService(nearService, hlService);
     const quoterService = new QuoterService(inventoryManager, hlService, nearService, logger);
-    const hedgerService = new HedgerService(nearService, hlService, logger);
+    const hedgerService = new HedgerService(nearService, hlService, inventoryManager, logger);
     const cronService = new CronService(nearService, hlService, logger, inventoryManager);
     const apiService = new ApiService(hedgerService, hlService, nearService, logger, port);
 
@@ -91,7 +95,7 @@ async function main() {
     const ctx: SolverContext = {
         ws: null,
         pendingRequests: new Map(),
-        requestCounter: 1
+        requestCounter: 2 // Start at 2 to avoid collision with subscription id: 1
     };
 
     // Graceful Shutdown
@@ -189,51 +193,29 @@ async function connectToBusWithRetry(
                 return;
             }
 
-            // Strip nep141: prefix from token IDs
-            const stripPrefix = (tokenId: string) => tokenId.replace(/^nep\d+:/, '');
-
-            // Map defuse field names to our internal format
+            // Map defuse field names to our internal format (uses hoisted stripPrefix)
             const req = {
                 token_in: stripPrefix(quoteData.defuse_asset_identifier_in),
                 token_out: stripPrefix(quoteData.defuse_asset_identifier_out),
                 amount_in: quoteData.exact_amount_in
             };
 
-            // Validate Token Support - accept any supported BTC token paired with any USD stablecoin
-            const isTokenInBtc = BTC_ONLY_CONFIG.isBtcToken(req.token_in);
-            const isTokenInUsd = BTC_ONLY_CONFIG.isUsdToken(req.token_in);
-            const isTokenOutBtc = BTC_ONLY_CONFIG.isBtcToken(req.token_out);
-            const isTokenOutUsd = BTC_ONLY_CONFIG.isUsdToken(req.token_out);
-
-            if (!((isTokenInBtc && isTokenOutUsd) || (isTokenInUsd && isTokenOutBtc))) {
-                // Debug: log if we see a BTC-like token that we don't support
-                const looksLikeBtc = (id: string) => 
-                    id.toLowerCase().includes('btc') || 
-                    id.includes('2260fac5e5542a773aa44fbcfedf7c193bc2c599') ||
-                    id.includes('cbb7c0000ab88b473b1f5afd9ef808440eed33bf');
-                
-                if (looksLikeBtc(req.token_in) || looksLikeBtc(req.token_out)) {
-                    console.warn(`[DEBUG] Rejected BTC-like pair: ${req.token_in} → ${req.token_out}`);
-                }
-                return;
-            }
-
             const t2 = performance.now();
 
+            // QuoterService handles all validation internally
             const quote = quoterService.getQuote(req);
             const t3 = performance.now();
 
             if (quote) {
-                const isBuyingBtc = BTC_ONLY_CONFIG.isBtcToken(req.token_in);
-                const btcTokenId = isBuyingBtc ? req.token_in : req.token_out;
-                const usdTokenId = isBuyingBtc ? req.token_out : req.token_in;
+                // Use metadata from quote result (already computed, avoid recomputing)
+                const { btcSize, weAreBuyingBtc, btcTokenId, usdTokenId, btcDecimals, usdDecimals } = quote;
                 const btcSymbol = BTC_ONLY_CONFIG.getBtcSymbol(btcTokenId);
-                const btcDecimals = BTC_ONLY_CONFIG.getBtcDecimals(btcTokenId);
-                const usdDecimals = BTC_ONLY_CONFIG.getUsdDecimals(usdTokenId);
-                const decimalsIn = isBuyingBtc ? btcDecimals : usdDecimals;
-                const decimalsOut = isBuyingBtc ? usdDecimals : btcDecimals;
-                const amountInFloat = parseFloat(req.amount_in) / Math.pow(10, decimalsIn);
-                const amountOutFloat = parseFloat(quote.amount_out) / Math.pow(10, decimalsOut);
+                const btcPow10 = BTC_ONLY_CONFIG.getBtcPow10(btcTokenId);
+                const usdPow10 = BTC_ONLY_CONFIG.getUsdPow10(usdTokenId);
+                const pow10In = weAreBuyingBtc ? btcPow10 : usdPow10;
+                const pow10Out = weAreBuyingBtc ? usdPow10 : btcPow10;
+                const amountInFloat = +req.amount_in / pow10In;
+                const amountOutFloat = +quote.amount_out / pow10Out;
 
                 // Build proper intents message
                 const quoteDeadlineMs = quoteData.min_deadline_ms + 60000; // Add 60s buffer
@@ -261,17 +243,13 @@ async function connectToBusWithRetry(
                 const nonce = generateRandomNonce();
                 const recipient = NEAR_CONFIG.INTENTS_CONTRACT_ID;
 
-                // Calculate hedge amount using config decimals
-                let amountBtcForHedge = 0;
-                if (isBuyingBtc) {
-                    amountBtcForHedge = amountInFloat;
-                } else {
-                    amountBtcForHedge = parseFloat(quote.amount_out) / Math.pow(10, btcDecimals);
-                }
+                // Use btcSize from quote result (already calculated)
+                const amountBtcForHedge = btcSize;
 
                 const t4 = performance.now();
                 const quoteHash = serializeIntent(messageStr, recipient, nonce, standard);
-                const signatureData = await nearService.sign(quoteHash);
+                // Synchronous sign for hot path performance
+                const signature = nearService.sign(quoteHash);
                 const t5 = performance.now();
 
                 // Publish via WebSocket with proper RTT measurement
@@ -291,8 +269,8 @@ async function connectToBusWithRetry(
                                 nonce,
                                 recipient
                             },
-                            signature: `ed25519:${bs58.encode(signatureData.signature)}`,
-                            public_key: `ed25519:${bs58.encode(signatureData.publicKey.data)}`
+                            signature: `ed25519:${bs58.encode(signature)}`,
+                            public_key: nearService.getPublicKeyString() // Pre-cached
                         }
                     };
 
@@ -335,17 +313,18 @@ async function connectToBusWithRetry(
 
                         // Track quote for settlement ONLY after successful publish
                         hedgerService.trackQuote(nonce, {
-                            direction: isBuyingBtc ? 'short' : 'long',
+                            direction: weAreBuyingBtc ? 'short' : 'long',
                             amountBtc: amountBtcForHedge,
-                            quoteId: nonce
+                            quoteId: nonce,
+                            deadlineMs: Date.now() + quoteDeadlineMs
                         });
 
-                        console.log(`✅ [${shortId(nonce)}] PUBLISHED | ${isBuyingBtc ? 'BUY' : 'SELL'} ${btcSymbol} ${amountInFloat.toFixed(6)} → ${amountOutFloat.toFixed(6)} | ${timings.total}ms`);
+                        console.log(`✅ [${shortId(nonce)}] PUBLISHED | ${weAreBuyingBtc ? 'BUY' : 'SELL'} ${btcSymbol} ${amountInFloat.toFixed(6)} → ${amountOutFloat.toFixed(6)} | ${timings.total}ms`);
 
                         logger.logTrade({
                             type: 'QUOTE_PUBLISHED',
                             nonce,
-                            direction: isBuyingBtc ? 'buy' : 'sell',
+                            direction: weAreBuyingBtc ? 'buy' : 'sell',
                             amountBtc: amountBtcForHedge,
                             timings
                         });
@@ -361,12 +340,12 @@ async function connectToBusWithRetry(
                         // Check if this is "another solver won" error
                         const errorMessage = relayErr?.message || String(relayErr);
                         if (errorMessage.includes('-32098') || errorMessage.includes('not found or already finished')) {
-                            console.log(`❌ [${shortId(nonce)}] REJECTED (solver lost) | ${isBuyingBtc ? 'BUY' : 'SELL'} ${btcSymbol} ${amountInFloat.toFixed(6)} → ${amountOutFloat.toFixed(6)} | ${timings.total}ms (post: ${timings.post}ms)`);
+                            console.log(`❌ [${shortId(nonce)}] REJECTED (solver lost) | ${weAreBuyingBtc ? 'BUY' : 'SELL'} ${btcSymbol} ${amountInFloat.toFixed(6)} → ${amountOutFloat.toFixed(6)} | ${timings.total}ms (post: ${timings.post}ms)`);
 
                             logger.logTrade({
                                 type: 'QUOTE_REJECTED',
                                 nonce,
-                                direction: isBuyingBtc ? 'buy' : 'sell',
+                                direction: weAreBuyingBtc ? 'buy' : 'sell',
                                 amountBtc: amountBtcForHedge,
                                 reason: 'solver_lost',
                                 timings
@@ -377,7 +356,7 @@ async function connectToBusWithRetry(
                             logger.logTrade({
                                 type: 'QUOTE_REJECTED',
                                 nonce,
-                                direction: isBuyingBtc ? 'buy' : 'sell',
+                                direction: weAreBuyingBtc ? 'buy' : 'sell',
                                 amountBtc: amountBtcForHedge,
                                 reason: 'error',
                                 error: errorMessage,
@@ -401,10 +380,13 @@ async function connectToBusWithRetry(
     });
 
     ws.on('close', () => {
-        // Only retry if not shutting down? 
-        // We can just rely on reconnectAttempts logic.
-        // Also clear ctx.ws
         if (ctx.ws === ws) ctx.ws = null;
+
+        // Clear all pending RPC promises immediately on disconnect
+        for (const [id, resolver] of ctx.pendingRequests.entries()) {
+            ctx.pendingRequests.delete(id);
+            resolver({ error: { code: -1, message: 'Connection closed' } });
+        }
 
         console.log('WS Closed');
         reconnectAttempts++;

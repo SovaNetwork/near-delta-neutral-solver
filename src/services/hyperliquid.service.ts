@@ -14,6 +14,16 @@ interface ClearinghouseSnapshot {
     timestamp: number;
 }
 
+interface NumericLevel {
+    px: number;
+    sz: number;
+}
+
+interface NumericBook {
+    bids: NumericLevel[];
+    asks: NumericLevel[];
+}
+
 export class HyperliquidService {
     private infoClient: InfoClient;
     private exchangeClient: ExchangeClient | undefined;
@@ -22,6 +32,7 @@ export class HyperliquidService {
     private wallet: Wallet | undefined;
     private assetToIndexMap: Map<string, number> = new Map();
     private l2Book: { levels: [Array<{px: string, sz: string}>, Array<{px: string, sz: string}>] } | null = null;
+    private numericBook: NumericBook | null = null; // Pre-parsed for hot path
     private lastBookUpdateMs: number = 0;
 
     private isMainnet: boolean;
@@ -112,6 +123,14 @@ export class HyperliquidService {
             this.subClient!.l2Book({ coin: this.coin }, (data: any) => {
                 if (data && data.levels) {
                     this.l2Book = { levels: data.levels };
+                    
+                    // Pre-parse to numeric for hot path (avoid parseFloat per quote)
+                    const [rawBids, rawAsks] = data.levels;
+                    this.numericBook = {
+                        bids: rawBids.map((l: {px: string, sz: string}) => ({ px: +l.px, sz: +l.sz })),
+                        asks: rawAsks.map((l: {px: string, sz: string}) => ({ px: +l.px, sz: +l.sz })),
+                    };
+                    
                     this.lastBookUpdateMs = Date.now();
                 }
 
@@ -187,34 +206,30 @@ export class HyperliquidService {
         }
     }
 
-    getHedgePrice(side: 'bid' | 'ask', size: number): number {
-        if (!this.l2Book || !this.l2Book.levels) {
-            throw new Error("Orderbook not yet available");
+    getHedgePrice(side: 'bid' | 'ask', size: number): number | null {
+        if (!this.numericBook) {
+            return null;
         }
 
         const bookAge = Date.now() - this.lastBookUpdateMs;
         if (bookAge > BTC_ONLY_CONFIG.MAX_ORDERBOOK_AGE_MS) {
-            throw new Error(`Orderbook stale (${bookAge}ms old, max ${BTC_ONLY_CONFIG.MAX_ORDERBOOK_AGE_MS}ms)`);
+            return null;
         }
 
-        const levels = side === 'bid' ? this.l2Book.levels[0] : this.l2Book.levels[1];
+        const levels = side === 'bid' ? this.numericBook.bids : this.numericBook.asks;
 
         let value = 0;
         let sizeRemaining = size;
 
-        for (const level of levels) {
-            const px = parseFloat(level.px);
-            const sz = parseFloat(level.sz);
-
-            const take = Math.min(sz, sizeRemaining);
+        for (const { px, sz } of levels) {
+            const take = sz < sizeRemaining ? sz : sizeRemaining;
             value += take * px;
             sizeRemaining -= take;
-
             if (sizeRemaining <= 0) break;
         }
 
-        if (sizeRemaining > 0.000001) {
-            throw new Error(`Insufficient liquidity to quote ${size} ${this.coin}`);
+        if (sizeRemaining > 1e-6) {
+            return null; // Insufficient liquidity
         }
 
         return value / size;
@@ -330,6 +345,10 @@ export class HyperliquidService {
         const isBuy = direction === 'long';
         const currentPrice = this.getHedgePrice(isBuy ? 'ask' : 'bid', size);
         
+        if (!currentPrice) {
+            throw new Error("Unable to get hedge price - orderbook unavailable or stale");
+        }
+        
         const slippageBps = BTC_ONLY_CONFIG.HEDGE_SLIPPAGE_BPS;
         const limitPx = isBuy
             ? currentPrice * (1 + slippageBps / 10000)
@@ -355,29 +374,4 @@ export class HyperliquidService {
         return result;
     }
 
-    async checkPositionCapacity(direction: 'short' | 'long', sizeBtc: number): Promise<boolean> {
-        // Current Position: +1.0 (Long) or -1.0 (Short).
-        // Max Inventory: 5.0 (Config).
-
-        try {
-            const currentPos = await this.getBtcPosition();
-
-            let projectedPos = currentPos;
-            if (direction === 'short') {
-                projectedPos -= sizeBtc;
-            } else {
-                projectedPos += sizeBtc;
-            }
-
-            // Check if projected position assumes more risk than allowed
-            if (Math.abs(projectedPos) > BTC_ONLY_CONFIG.MAX_BTC_INVENTORY) {
-                console.warn(`[RISK] Trade size ${sizeBtc} would exceed max inventory. Projected: ${projectedPos}, Max: ${BTC_ONLY_CONFIG.MAX_BTC_INVENTORY}`);
-                return false;
-            }
-            return true;
-        } catch (e) {
-            console.error("Failed to check position capacity", e);
-            return false;
-        }
-    }
 }

@@ -122,7 +122,7 @@ export class ApiService {
                 minUsdtReserve: BTC_ONLY_CONFIG.MIN_USDT_RESERVE,
                 targetSpreadBips: BTC_ONLY_CONFIG.TARGET_SPREAD_BIPS,
                 minMarginThreshold: BTC_ONLY_CONFIG.MIN_MARGIN_THRESHOLD,
-                minHourlyFundingRate: BTC_ONLY_CONFIG.MIN_HOURLY_FUNDING_RATE,
+                maxNegativeFundingRate: BTC_ONLY_CONFIG.MAX_NEGATIVE_FUNDING_RATE,
                 driftThresholdBtc: BTC_ONLY_CONFIG.DRIFT_THRESHOLD_BTC,
                 minTradeSizeBtc: BTC_ONLY_CONFIG.MIN_TRADE_SIZE_BTC,
                 maxTradeSizeBtc: BTC_ONLY_CONFIG.MAX_TRADE_SIZE_BTC

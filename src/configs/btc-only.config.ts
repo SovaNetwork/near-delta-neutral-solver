@@ -2,73 +2,59 @@ export interface TokenConfig {
     id: string;
     symbol: string;
     decimals: number;
+    pow10: number;
 }
 
 export type BtcTokenConfig = TokenConfig;
 
+// Pre-build token arrays with pow10
+const BTC_TOKENS: BtcTokenConfig[] = [
+    { id: 'btc.omft.near', symbol: 'BTC', decimals: 8, pow10: 1e8 },
+    { id: 'eth-0x2260fac5e5542a773aa44fbcfedf7c193bc2c599.omft.near', symbol: 'wBTC', decimals: 8, pow10: 1e8 },
+    { id: 'eth-0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf.omft.near', symbol: 'cbBTC-ETH', decimals: 8, pow10: 1e8 },
+    { id: 'base-0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf.omft.near', symbol: 'cbBTC-BASE', decimals: 8, pow10: 1e8 },
+];
+
+const USD_TOKENS: TokenConfig[] = [
+    { id: 'eth-0xdac17f958d2ee523a2206206994597c13d831ec7.omft.near', symbol: 'USDT', decimals: 6, pow10: 1e6 },
+];
+
+// Pre-build Maps for O(1) lookup (created once at module load)
+const BTC_MAP = new Map<string, BtcTokenConfig>(BTC_TOKENS.map(t => [t.id, t]));
+const USD_MAP = new Map<string, TokenConfig>(USD_TOKENS.map(t => [t.id, t]));
+
 export const BTC_ONLY_CONFIG = {
     BTC_ONLY_MODE: true,
 
-    // Supported BTC tokens with their configuration
-    BTC_TOKENS: [
-        { id: 'btc.omft.near', symbol: 'BTC', decimals: 8 },
-        { id: 'eth-0x2260fac5e5542a773aa44fbcfedf7c193bc2c599.omft.near', symbol: 'wBTC', decimals: 8 },
-        { id: 'eth-0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf.omft.near', symbol: 'cbBTC-ETH', decimals: 8 },
-        { id: 'base-0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf.omft.near', symbol: 'cbBTC-BASE', decimals: 8 },
-    ] as BtcTokenConfig[],
+    // Token arrays
+    BTC_TOKENS,
+    USD_TOKENS,
 
     // Derived array of token IDs for quick lookup
     get BTC_TOKEN_IDS(): string[] {
-        return this.BTC_TOKENS.map(t => t.id);
+        return BTC_TOKENS.map(t => t.id);
     },
 
-    // Helper to check if a token is a supported BTC type
-    isBtcToken: (tokenId: string): boolean => {
-        return BTC_ONLY_CONFIG.BTC_TOKENS.some(t => t.id === tokenId);
-    },
+    // O(1) token checks using pre-built Maps
+    isBtcToken: (tokenId: string): boolean => BTC_MAP.has(tokenId),
+    isUsdToken: (tokenId: string): boolean => USD_MAP.has(tokenId),
 
-    // Get token config by ID
-    getBtcTokenConfig: (tokenId: string): BtcTokenConfig | undefined => {
-        return BTC_ONLY_CONFIG.BTC_TOKENS.find(t => t.id === tokenId);
-    },
+    // O(1) config lookups
+    getBtcTokenConfig: (tokenId: string): BtcTokenConfig | undefined => BTC_MAP.get(tokenId),
+    getUsdTokenConfig: (tokenId: string): TokenConfig | undefined => USD_MAP.get(tokenId),
 
     // Get human-readable symbol for BTC token
-    getBtcSymbol: (tokenId: string): string => {
-        const config = BTC_ONLY_CONFIG.getBtcTokenConfig(tokenId);
-        return config?.symbol ?? 'BTC';
-    },
+    getBtcSymbol: (tokenId: string): string => BTC_MAP.get(tokenId)?.symbol ?? 'BTC',
 
-    // Get decimals for BTC token (defaults to 8)
-    getBtcDecimals: (tokenId: string): number => {
-        const config = BTC_ONLY_CONFIG.getBtcTokenConfig(tokenId);
-        return config?.decimals ?? 8;
-    },
-
-    // Supported USD stablecoins (USDT only for now - bootstrapping with limited capital)
-    // To re-enable USDC, add: { id: 'eth-0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48.omft.near', symbol: 'USDC', decimals: 6 }
-    USD_TOKENS: [
-        { id: 'eth-0xdac17f958d2ee523a2206206994597c13d831ec7.omft.near', symbol: 'USDT', decimals: 6 },
-    ] as TokenConfig[],
-
-    // Helper to check if a token is a supported USD stablecoin
-    isUsdToken: (tokenId: string): boolean => {
-        return BTC_ONLY_CONFIG.USD_TOKENS.some(t => t.id === tokenId);
-    },
-
-    // Get USD token config by ID
-    getUsdTokenConfig: (tokenId: string): TokenConfig | undefined => {
-        return BTC_ONLY_CONFIG.USD_TOKENS.find(t => t.id === tokenId);
-    },
-
-    // Get decimals for USD token (defaults to 6)
-    getUsdDecimals: (tokenId: string): number => {
-        const config = BTC_ONLY_CONFIG.getUsdTokenConfig(tokenId);
-        return config?.decimals ?? 6;
-    },
+    // Get decimals/pow10 with defaults
+    getBtcDecimals: (tokenId: string): number => BTC_MAP.get(tokenId)?.decimals ?? 8,
+    getUsdDecimals: (tokenId: string): number => USD_MAP.get(tokenId)?.decimals ?? 6,
+    getBtcPow10: (tokenId: string): number => BTC_MAP.get(tokenId)?.pow10 ?? 1e8,
+    getUsdPow10: (tokenId: string): number => USD_MAP.get(tokenId)?.pow10 ?? 1e6,
 
     // Legacy single token ID (for backwards compat, uses first USD token)
     get USDT_TOKEN_ID(): string {
-        return this.USD_TOKENS[0]?.id ?? 'eth-0xdac17f958d2ee523a2206206994597c13d831ec7.omft.near';
+        return USD_TOKENS[0]?.id ?? 'eth-0xdac17f958d2ee523a2206206994597c13d831ec7.omft.near';
     },
     USDT_DECIMALS: 6,
 
@@ -79,7 +65,10 @@ export const BTC_ONLY_CONFIG = {
 
     // Risk
     MIN_MARGIN_THRESHOLD: parseFloat(process.env.MIN_MARGIN_THRESHOLD || '1000.0'), // Min USDC margin on HL
-    MIN_HOURLY_FUNDING_RATE: parseFloat(process.env.MIN_HOURLY_FUNDING_RATE || '-0.0005'), // -0.05% per hour
+    // Maximum negative funding rate we'll tolerate for short positions
+    // When funding is negative, shorts PAY longs. We reject if more negative than this threshold.
+    // e.g., -0.0005 = -0.05%/hr = we reject quotes if funding < -0.05%/hr
+    MAX_NEGATIVE_FUNDING_RATE: parseFloat(process.env.MAX_NEGATIVE_FUNDING_RATE || process.env.MIN_HOURLY_FUNDING_RATE || '-0.0005'),
     DRIFT_THRESHOLD_BTC: parseFloat(process.env.DRIFT_THRESHOLD_BTC || '0.001'),
     MIN_TRADE_SIZE_BTC: parseFloat(process.env.MIN_TRADE_SIZE_BTC || '0.0001'),
     MAX_TRADE_SIZE_BTC: parseFloat(process.env.MAX_TRADE_SIZE_BTC || '1.0'),

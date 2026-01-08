@@ -6,6 +6,7 @@ export class NearService {
     private near: Near | undefined;
     private account: Account | undefined;
     private keyPair: any; // Cache the key pair for faster signing
+    private publicKeyString: string | undefined; // Pre-encoded public key for hot path
     private balanceCache: Map<string, { balance: BigNumber, timestamp: number, refreshing?: boolean }> = new Map();
     private readonly CACHE_TTL_MS = 10000; // 10 second cache for faster reactions
     private readonly CACHE_REFRESH_THRESHOLD_MS = 7000; // Start background refresh after 7s
@@ -42,6 +43,10 @@ export class NearService {
         if (!this.keyPair) {
             throw new Error("Failed to load keypair after initialization - this should not happen");
         }
+
+        // Pre-encode public key for hot path (avoid bs58.encode per quote)
+        const bs58 = await import('bs58');
+        this.publicKeyString = `ed25519:${bs58.default.encode(this.keyPair.getPublicKey().data)}`;
 
         console.log(`NearService initialized for ${NEAR_CONFIG.SOLVER_ID}`);
     }
@@ -120,16 +125,16 @@ export class NearService {
         });
     }
 
-    async sign(message: Buffer): Promise<{ signature: Uint8Array; publicKey: { data: Uint8Array } }> {
+    // Synchronous sign for hot path performance
+    sign(message: Buffer): Uint8Array {
         if (!this.keyPair) throw new Error("NearService not initialized or key not loaded");
+        return this.keyPair.sign(message).signature;
+    }
 
-        const signature = this.keyPair.sign(message);
-        return {
-            signature: signature.signature,
-            publicKey: {
-                data: this.keyPair.getPublicKey().data
-            }
-        };
+    // Pre-encoded public key string for hot path
+    getPublicKeyString(): string {
+        if (!this.publicKeyString) throw new Error("NearService not initialized");
+        return this.publicKeyString;
     }
 
     async wasNonceUsed(nonce: string): Promise<boolean> {

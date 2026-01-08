@@ -1,5 +1,6 @@
 import { NearService } from './near.service';
 import { HyperliquidService } from './hyperliquid.service';
+import { InventoryStateService } from './inventory-manager.service';
 import { NEAR_CONFIG } from '../configs/near.config';
 import { LoggerService, shortId } from './logger.service';
 
@@ -8,19 +9,23 @@ interface QuoteData {
     amountBtc: number;
     quoteId: string;
     timestamp: number;
+    deadlineMs: number; // Actual deadline for this quote
 }
 
 export class HedgerService {
     private pendingQuotes = new Map<string, QuoteData>(); // nonce -> data
     private pollInterval: NodeJS.Timeout | null = null;
     private processing = false; // Simple lock to avoid overlapping polls if slow
-    private readonly POLL_INTERVAL_MS = 5000; // Check every 5 seconds (reduced from 2s to avoid rate limits)
-    private readonly MAX_CONCURRENT_NONCE_CHECKS = 3; // Max parallel nonce checks to avoid RPC rate limits
-    private readonly NONCE_CHECK_DELAY_MS = 100; // Delay between batch checks
+    private readonly POLL_INTERVAL_MS = 1500; // Check every 1.5 seconds for faster hedge execution
+    private readonly MAX_CONCURRENT_NONCE_CHECKS = 5; // Max parallel nonce checks
+    private readonly NONCE_CHECK_DELAY_MS = 50; // Delay between batch checks
+    private consecutiveRpcFailures = 0;
+    private readonly MAX_RPC_FAILURES_BEFORE_EMERGENCY = 5;
 
     constructor(
         private nearService: NearService,
         private hlService: HyperliquidService,
+        private inventoryManager: InventoryStateService,
         private logger: LoggerService
     ) { }
 
@@ -30,7 +35,7 @@ export class HedgerService {
         this.pollInterval = setInterval(() => this.poll(), this.POLL_INTERVAL_MS);
     }
 
-    trackQuote(nonce: string, data: Omit<QuoteData, 'timestamp'>) {
+    trackQuote(nonce: string, data: Omit<QuoteData, 'timestamp' | 'deadlineMs'> & { deadlineMs: number }) {
         this.pendingQuotes.set(nonce, { ...data, timestamp: Date.now() });
         console.log(`🔄 [${shortId(nonce)}] TRACKING | awaiting settlement...`);
     }
@@ -44,18 +49,21 @@ export class HedgerService {
         this.processing = true;
 
         try {
-            // Check for timeouts
+            // Check for timeouts based on actual quote deadline + safety buffer
             const now = Date.now();
+            const SAFETY_BUFFER_MS = 30000; // 30s buffer after deadline
             for (const [nonce, data] of this.pendingQuotes.entries()) {
-                if (data.timestamp && now - data.timestamp > 300000) { // 5 mins
-                    console.log(`⏰ [${shortId(nonce)}] EXPIRED | no settlement after 5min`);
+                const expiryTime = data.deadlineMs + SAFETY_BUFFER_MS;
+                if (now > expiryTime) {
+                    const expiredAfterMs = now - data.timestamp;
+                    console.log(`⏰ [${shortId(nonce)}] EXPIRED | no settlement after ${Math.round(expiredAfterMs / 1000)}s`);
                     this.pendingQuotes.delete(nonce);
                     this.logger.logTrade({
                         type: 'QUOTE_EXPIRED',
                         nonce,
                         direction: data.direction,
                         amountBtc: data.amountBtc,
-                        error: 'Expired'
+                        error: `Expired after ${Math.round(expiredAfterMs / 1000)}s`
                     });
                 }
             }
@@ -63,6 +71,7 @@ export class HedgerService {
             // Check nonces in small batches to avoid RPC rate limits
             const noncesArray = Array.from(this.pendingQuotes.entries());
             const nonceResults: { nonce: string; data: QuoteData; isUsed: boolean }[] = [];
+            let batchHadRpcFailure = false;
 
             // Process in batches of MAX_CONCURRENT_NONCE_CHECKS
             for (let i = 0; i < noncesArray.length; i += this.MAX_CONCURRENT_NONCE_CHECKS) {
@@ -72,23 +81,39 @@ export class HedgerService {
                     batch.map(async ([nonce, data]) => {
                         try {
                             const isUsed = await this.nearService.wasNonceUsed(nonce);
-                            return { nonce, data, isUsed };
+                            return { nonce, data, isUsed, failed: false };
                         } catch (e: any) {
+                            batchHadRpcFailure = true;
                             // Don't spam logs for rate limit errors
                             if (!e?.message?.includes('429') && !e?.message?.includes('Rate limit')) {
                                 console.error(`Error checking nonce ${nonce}:`, e);
                             }
-                            return { nonce, data, isUsed: false };
+                            return { nonce, data, isUsed: false, failed: true };
                         }
                     })
                 );
 
-                nonceResults.push(...batchResults);
+                nonceResults.push(...batchResults.map(r => ({ nonce: r.nonce, data: r.data, isUsed: r.isUsed })));
 
                 // Add delay between batches to avoid rate limits
                 if (i + this.MAX_CONCURRENT_NONCE_CHECKS < noncesArray.length) {
                     await new Promise(r => setTimeout(r, this.NONCE_CHECK_DELAY_MS));
                 }
+            }
+
+            // Track consecutive RPC failures and trigger emergency mode if too many
+            if (batchHadRpcFailure) {
+                this.consecutiveRpcFailures++;
+                if (this.consecutiveRpcFailures >= this.MAX_RPC_FAILURES_BEFORE_EMERGENCY) {
+                    console.error(`🚨 NEAR RPC unhealthy (${this.consecutiveRpcFailures} consecutive failures) - enabling emergency mode`);
+                    this.inventoryManager.setEmergencyMode(true);
+                }
+            } else if (noncesArray.length > 0) {
+                // Reset counter on successful batch (only if we actually checked something)
+                if (this.consecutiveRpcFailures > 0) {
+                    console.log(`✅ NEAR RPC recovered after ${this.consecutiveRpcFailures} failures`);
+                }
+                this.consecutiveRpcFailures = 0;
             }
 
             // Process all used nonces
@@ -123,6 +148,10 @@ export class HedgerService {
                         } catch (hedgeErr) {
                             console.error(`🚨 [${shortId(nonce)}] HEDGE FAILED | ${data.direction} ${data.amountBtc.toFixed(6)} BTC`, hedgeErr);
                             console.error(`🚨 MANUAL INTERVENTION REQUIRED - unhedged position!`);
+                            console.error(`🚨 ENABLING EMERGENCY MODE - stopping all quotes`);
+
+                            // Circuit breaker: stop quoting when hedge fails
+                            this.inventoryManager.setEmergencyMode(true);
 
                             this.logger.logTrade({
                                 type: 'HEDGE_FAILED',
