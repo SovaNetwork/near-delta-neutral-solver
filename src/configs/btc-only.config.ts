@@ -11,6 +11,7 @@ export type BtcTokenConfig = TokenConfig;
 const BTC_TOKENS: BtcTokenConfig[] = [
     { id: 'btc.omft.near', symbol: 'BTC', decimals: 8, pow10: 1e8 },
     { id: 'eth-0x2260fac5e5542a773aa44fbcfedf7c193bc2c599.omft.near', symbol: 'wBTC', decimals: 8, pow10: 1e8 },
+    { id: 'eth-0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf.omft.near', symbol: 'cbBTC-ETH', decimals: 8, pow10: 1e8 },
     { id: 'base-0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf.omft.near', symbol: 'cbBTC-BASE', decimals: 8, pow10: 1e8 },
 ];
 
