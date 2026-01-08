@@ -135,7 +135,10 @@ async function connectToBusWithRetry(
 
     console.log(`Connecting to Solver Bus: ${SOLVER_BUS_WS}`);
 
-    const wsOptions: any = {};
+    const wsOptions: any = {
+        perMessageDeflate: false, // Disable compression for lower latency
+        handshakeTimeout: 2000,
+    };
     if (process.env.RELAY_AUTH_KEY) {
         wsOptions.headers = {
             'Authorization': `Bearer ${process.env.RELAY_AUTH_KEY}`
@@ -149,6 +152,15 @@ async function connectToBusWithRetry(
     ws.on('open', () => {
         console.log('Connected to Solver Bus');
         reconnectAttempts = 0; // Reset on success
+
+        // Optimize TCP socket for low latency
+        const socket = (ws as any)?._socket;
+        if (socket && typeof socket.setNoDelay === 'function') {
+            socket.setNoDelay(true); // Disable Nagle's algorithm
+            socket.setKeepAlive(true, 1000);
+            console.log('TCP optimizations enabled (NoDelay, KeepAlive)');
+        }
+
         ws.send(JSON.stringify({
             jsonrpc: '2.0',
             id: 1,
