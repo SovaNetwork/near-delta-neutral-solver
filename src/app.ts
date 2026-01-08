@@ -319,7 +319,7 @@ async function connectToBusWithRetry(
                             deadlineMs: Date.now() + quoteDeadlineMs
                         });
 
-                        console.log(`✅ [${shortId(nonce)}] PUBLISHED | ${weAreBuyingBtc ? 'BUY' : 'SELL'} ${btcSymbol} ${amountInFloat.toFixed(6)} → ${amountOutFloat.toFixed(6)} | ${timings.total}ms`);
+                        console.log(`✅ [${shortId(nonce)}] PUBLISHED | ${weAreBuyingBtc ? 'BUY' : 'SELL'} ${btcSymbol} ${amountInFloat.toFixed(6)} → ${amountOutFloat.toFixed(6)} | total:${timings.total}ms quote:${timings.quote}ms sign:${timings.sign}ms net:${timings.post}ms`);
 
                         logger.logTrade({
                             type: 'QUOTE_PUBLISHED',
@@ -340,7 +340,7 @@ async function connectToBusWithRetry(
                         // Check if this is "another solver won" error
                         const errorMessage = relayErr?.message || String(relayErr);
                         if (errorMessage.includes('-32098') || errorMessage.includes('not found or already finished')) {
-                            console.log(`❌ [${shortId(nonce)}] REJECTED (solver lost) | ${weAreBuyingBtc ? 'BUY' : 'SELL'} ${btcSymbol} ${amountInFloat.toFixed(6)} → ${amountOutFloat.toFixed(6)} | ${timings.total}ms (post: ${timings.post}ms)`);
+                            console.log(`❌ [${shortId(nonce)}] REJECTED | ${weAreBuyingBtc ? 'BUY' : 'SELL'} ${btcSymbol} ${amountInFloat.toFixed(6)} | total:${timings.total}ms quote:${timings.quote}ms sign:${timings.sign}ms net:${timings.post}ms`);
 
                             logger.logTrade({
                                 type: 'QUOTE_REJECTED',
