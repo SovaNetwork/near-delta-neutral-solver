@@ -7,6 +7,7 @@
     "build": "tsc",
     "start": "ts-node src/app.ts",
     "test-hl": "ts-node scripts/test-hl.ts",
+    "test-latency": "ts-node scripts/test-latency.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
