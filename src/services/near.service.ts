@@ -47,14 +47,31 @@ export class NearService {
         }
 
         // Extract raw 64-byte secret key for direct tweetnacl signing (faster than KeyPair.sign)
-        // The near-api-js KeyPair stores the full 64-byte ed25519 secret key
-        this.secretKey = new Uint8Array(this.keyPair.secretKey || this.keyPair.getSecretKey?.() || []);
-        if (this.secretKey.length !== 64) {
-            // Fallback: try to get it from the string representation
+        // The near-api-js KeyPair stores the full 64-byte ed25519 secret key (seed + public key)
+        const rawSecretKey = this.keyPair.secretKey || this.keyPair.getSecretKey?.() || null;
+        
+        if (rawSecretKey && rawSecretKey.length === 64) {
+            this.secretKey = new Uint8Array(rawSecretKey);
+            console.log(`Using 64-byte secret key from KeyPair (fast path)`);
+        } else {
+            // Fallback: derive 64-byte key from 32-byte seed using tweetnacl
             const keyString = NEAR_CONFIG.SOLVER_PRIVATE_KEY;
             if (keyString.startsWith('ed25519:')) {
                 const bs58Import = await import('bs58');
-                this.secretKey = bs58Import.default.decode(keyString.slice(8));
+                const seed = bs58Import.default.decode(keyString.slice(8));
+                
+                if (seed.length === 32) {
+                    // Generate full keypair from 32-byte seed
+                    const keypair = nacl.sign.keyPair.fromSeed(seed);
+                    this.secretKey = keypair.secretKey; // 64 bytes
+                    console.log(`Derived 64-byte secret key from 32-byte seed (fast path)`);
+                } else if (seed.length === 64) {
+                    // Already have full secret key
+                    this.secretKey = seed;
+                    console.log(`Using 64-byte secret key from env (fast path)`);
+                } else {
+                    console.warn(`Unexpected key length: ${seed.length}, falling back to KeyPair.sign`);
+                }
             }
         }
 

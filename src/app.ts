@@ -26,11 +26,23 @@ let reconnectAttempts = 0;
 const STRIP_PREFIX_REGEX = /^nep\d+:/;
 const stripPrefix = (tokenId: string) => tokenId.replace(STRIP_PREFIX_REGEX, '');
 
+// Cached quote data for settlement matching
+interface CachedQuote {
+    nonce: string;
+    quoteHash: string;  // Used to match quote_status events
+    direction: 'short' | 'long';
+    amountBtc: number;
+    deadlineMs: number;
+    timestamp: number;
+}
+
 // Context to share mutable WebSocket reference
 interface SolverContext {
     ws: WebSocket | null;
     pendingRequests: Map<number, (response: any) => void>;
     requestCounter: number;
+    quoteCache: Map<string, CachedQuote>;  // quoteHash -> quote data
+    subscriptionIds: Map<string, string>;  // subscriptionId -> event type
 }
 
 async function main() {
@@ -95,7 +107,9 @@ async function main() {
     const ctx: SolverContext = {
         ws: null,
         pendingRequests: new Map(),
-        requestCounter: 2 // Start at 2 to avoid collision with subscription id: 1
+        requestCounter: 3, // Start at 3 to avoid collision with subscription ids: 1, 2
+        quoteCache: new Map(),
+        subscriptionIds: new Map(),
     };
 
     // Graceful Shutdown
@@ -117,7 +131,7 @@ async function main() {
     process.once('SIGTERM', cleanup);
 
     // 2. Connect to Solver Bus
-    await connectToBusWithRetry(ctx, quoterService, hedgerService, nearService, logger);
+    await connectToBusWithRetry(ctx, quoterService, hedgerService, nearService, hlService, inventoryManager, logger);
 }
 
 async function connectToBusWithRetry(
@@ -125,6 +139,8 @@ async function connectToBusWithRetry(
     quoterService: QuoterService,
     hedgerService: HedgerService,
     nearService: NearService,
+    hlService: HyperliquidService,
+    inventoryManager: InventoryStateService,
     logger: LoggerService
 ) {
     if (reconnectAttempts > 0) {
@@ -161,13 +177,22 @@ async function connectToBusWithRetry(
             console.log('TCP optimizations enabled (NoDelay, KeepAlive)');
         }
 
+        // Subscribe to quote requests
         ws.send(JSON.stringify({
             jsonrpc: '2.0',
             id: 1,
             method: 'subscribe',
             params: ['quote']
         }));
-        console.log('Subscribed to quote stream');
+        
+        // Subscribe to quote_status for instant settlement detection
+        ws.send(JSON.stringify({
+            jsonrpc: '2.0',
+            id: 2,
+            method: 'subscribe',
+            params: ['quote_status']
+        }));
+        console.log('Subscribed to quote and quote_status streams');
     });
 
     ws.on('message', async (data: string) => {
@@ -183,9 +208,62 @@ async function connectToBusWithRetry(
                 return;
             }
 
-            // Handle subscription confirmation (has 'result' field)
-            if (msg.result) {
-                console.log('Subscription confirmed:', msg.result);
+            // Handle subscription confirmation (has 'result' field and 'id' matches our subscription requests)
+            if (msg.result && (msg.id === 1 || msg.id === 2)) {
+                const eventType = msg.id === 1 ? 'quote' : 'quote_status';
+                ctx.subscriptionIds.set(msg.result, eventType);
+                console.log(`Subscription confirmed: ${eventType} -> ${msg.result}`);
+                return;
+            }
+
+            // Route events based on subscription type
+            const subscriptionId = msg.params?.subscription;
+            const eventType = subscriptionId ? ctx.subscriptionIds.get(subscriptionId) : null;
+            
+            if (eventType === 'quote_status') {
+                // Handle quote_status event (settlement notification)
+                const statusData = msg.params?.data;
+                if (!statusData) return;
+                
+                const quoteHash = statusData.quote_hash;
+                const cachedQuote = quoteHash ? ctx.quoteCache.get(quoteHash) : null;
+                
+                if (cachedQuote) {
+                    // OUR QUOTE WAS EXECUTED! Execute hedge immediately
+                    console.log(`💰 [${shortId(cachedQuote.nonce)}] SETTLED via quote_status | executing hedge...`);
+                    
+                    ctx.quoteCache.delete(quoteHash);
+                    hedgerService.removeQuote(cachedQuote.nonce); // Remove from polling
+                    
+                    try {
+                        const result = await hlService.executeHedge(cachedQuote.direction, cachedQuote.amountBtc);
+                        console.log(`✅ [${shortId(cachedQuote.nonce)}] HEDGED | ${cachedQuote.direction} ${cachedQuote.amountBtc.toFixed(6)} BTC | Tx: ${statusData.tx_hash?.substring(0, 8) || 'unknown'}...`);
+                        
+                        logger.logTrade({
+                            type: 'HEDGE_EXECUTED',
+                            nonce: cachedQuote.nonce,
+                            direction: cachedQuote.direction,
+                            amountBtc: cachedQuote.amountBtc,
+                            txHash: statusData.tx_hash,
+                            timestamp: new Date().toISOString()
+                        });
+                    } catch (hedgeErr) {
+                        console.error(`🚨 [${shortId(cachedQuote.nonce)}] HEDGE FAILED | ${cachedQuote.direction} ${cachedQuote.amountBtc.toFixed(6)} BTC`, hedgeErr);
+                        inventoryManager.setEmergencyMode(true);
+                        
+                        logger.logTrade({
+                            type: 'HEDGE_FAILED',
+                            nonce: cachedQuote.nonce,
+                            direction: cachedQuote.direction,
+                            amountBtc: cachedQuote.amountBtc,
+                            error: String(hedgeErr),
+                            timestamp: new Date().toISOString()
+                        });
+                    }
+                } else {
+                    // Other solver won - log for visibility
+                    console.log(`📨 Other solver won | Tx: ${statusData.tx_hash?.substring(0, 8) || 'unknown'}...`);
+                }
                 return;
             }
 
@@ -195,21 +273,15 @@ async function connectToBusWithRetry(
 
             const t1 = performance.now();
 
-            // Reject exact_amount_out quotes - not yet supported
-            // (exact_amount_out requires inverse pricing logic)
-            if (!quoteData.exact_amount_in && quoteData.exact_amount_out) {
-                // Log occasionally to track if we're missing volume
-                if (Math.random() < 0.01) { // 1% sample rate to avoid log spam
-                    console.log(`[DEBUG] Skipping exact_amount_out quote: ${quoteData.exact_amount_out}`);
-                }
-                return;
-            }
+            // Determine quote type
+            const isExactOut = !quoteData.exact_amount_in && !!quoteData.exact_amount_out;
 
             // Map defuse field names to our internal format (uses hoisted stripPrefix)
             const req = {
                 token_in: stripPrefix(quoteData.defuse_asset_identifier_in),
                 token_out: stripPrefix(quoteData.defuse_asset_identifier_out),
-                amount_in: quoteData.exact_amount_in
+                amount_in: quoteData.exact_amount_in,    // undefined for exact_out
+                amount_out: quoteData.exact_amount_out,  // undefined for exact_in
             };
 
             const t2 = performance.now();
@@ -226,8 +298,12 @@ async function connectToBusWithRetry(
                 const usdPow10 = BTC_ONLY_CONFIG.getUsdPow10(usdTokenId);
                 const pow10In = weAreBuyingBtc ? btcPow10 : usdPow10;
                 const pow10Out = weAreBuyingBtc ? usdPow10 : btcPow10;
-                const amountInFloat = +req.amount_in / pow10In;
-                const amountOutFloat = +quote.amount_out / pow10Out;
+
+                // Determine actual amounts based on quote type
+                const finalAmountIn = isExactOut ? quote.amount_in! : req.amount_in!;
+                const finalAmountOut = isExactOut ? req.amount_out! : quote.amount_out!;
+                const amountInFloat = +finalAmountIn / pow10In;
+                const amountOutFloat = +finalAmountOut / pow10Out;
 
                 // Build proper intents message
                 const quoteDeadlineMs = quoteData.min_deadline_ms + 60000; // Add 60s buffer
@@ -244,8 +320,8 @@ async function connectToBusWithRetry(
                         {
                             intent: 'token_diff',
                             diff: {
-                                [tokenInWithPrefix]: req.amount_in,
-                                [tokenOutWithPrefix]: `-${quote.amount_out}`
+                                [tokenInWithPrefix]: finalAmountIn,
+                                [tokenOutWithPrefix]: `-${finalAmountOut}`
                             }
                         }
                     ]
@@ -269,11 +345,13 @@ async function connectToBusWithRetry(
                     const requestId = ctx.requestCounter++;
 
                     // Format quote response to match relay expectations
+                    // For exact_amount_in: return amount_out
+                    // For exact_amount_out: return amount_in
                     const quoteResponse = {
                         quote_id: quoteData.quote_id,
-                        quote_output: {
-                            amount_out: quote.amount_out
-                        },
+                        quote_output: isExactOut 
+                            ? { amount_in: quote.amount_in }
+                            : { amount_out: quote.amount_out },
                         signed_data: {
                             standard,
                             payload: {
@@ -294,11 +372,12 @@ async function connectToBusWithRetry(
                     };
 
                     // Send and wait for relay acknowledgment
+                    // Increased timeout for high-latency environments (Amsterdam -> US relay)
                     const responsePromise = new Promise<any>((resolve, reject) => {
                         const timeout = setTimeout(() => {
                             ctx.pendingRequests.delete(requestId);
                             reject(new Error('Quote submission timeout'));
-                        }, 5000);
+                        }, 8000);
 
                         ctx.pendingRequests.set(requestId, (response) => {
                             clearTimeout(timeout);
@@ -324,6 +403,18 @@ async function connectToBusWithRetry(
                         };
 
                         // Track quote for settlement ONLY after successful publish
+                        // Cache by quote hash for instant quote_status matching
+                        const quoteHashB58 = bs58.encode(quoteHash);
+                        ctx.quoteCache.set(quoteHashB58, {
+                            nonce,
+                            quoteHash: quoteHashB58,
+                            direction: weAreBuyingBtc ? 'short' : 'long',
+                            amountBtc: amountBtcForHedge,
+                            deadlineMs: Date.now() + quoteDeadlineMs,
+                            timestamp: Date.now(),
+                        });
+                        
+                        // Also track in hedger for nonce-based fallback polling
                         hedgerService.trackQuote(nonce, {
                             direction: weAreBuyingBtc ? 'short' : 'long',
                             amountBtc: amountBtcForHedge,
@@ -331,7 +422,8 @@ async function connectToBusWithRetry(
                             deadlineMs: Date.now() + quoteDeadlineMs
                         });
 
-                        console.log(`✅ [${shortId(nonce)}] PUBLISHED | ${weAreBuyingBtc ? 'BUY' : 'SELL'} ${btcSymbol} ${amountInFloat.toFixed(6)} → ${amountOutFloat.toFixed(6)} | total:${timings.total}ms quote:${timings.quote}ms sign:${timings.sign}ms net:${timings.post}ms`);
+                        const quoteType = isExactOut ? 'OUT' : 'IN';
+                        console.log(`✅ [${shortId(nonce)}] PUBLISHED ${quoteType} | ${weAreBuyingBtc ? 'BUY' : 'SELL'} ${btcSymbol} ${amountInFloat.toFixed(6)} → ${amountOutFloat.toFixed(6)} | total:${timings.total}ms quote:${timings.quote}ms sign:${timings.sign}ms net:${timings.post}ms`);
 
                         logger.logTrade({
                             type: 'QUOTE_PUBLISHED',
@@ -352,7 +444,8 @@ async function connectToBusWithRetry(
                         // Check if this is "another solver won" error
                         const errorMessage = relayErr?.message || String(relayErr);
                         if (errorMessage.includes('-32098') || errorMessage.includes('not found or already finished')) {
-                            console.log(`❌ [${shortId(nonce)}] REJECTED | ${weAreBuyingBtc ? 'BUY' : 'SELL'} ${btcSymbol} ${amountInFloat.toFixed(6)} | total:${timings.total}ms quote:${timings.quote}ms sign:${timings.sign}ms net:${timings.post}ms`);
+                            const quoteType = isExactOut ? 'OUT' : 'IN';
+                            console.log(`❌ [${shortId(nonce)}] REJECTED ${quoteType} | ${weAreBuyingBtc ? 'BUY' : 'SELL'} ${btcSymbol} ${amountInFloat.toFixed(6)} | total:${timings.total}ms quote:${timings.quote}ms sign:${timings.sign}ms net:${timings.post}ms`);
 
                             logger.logTrade({
                                 type: 'QUOTE_REJECTED',
@@ -399,10 +492,21 @@ async function connectToBusWithRetry(
             ctx.pendingRequests.delete(id);
             resolver({ error: { code: -1, message: 'Connection closed' } });
         }
+        
+        // Clear subscription mappings (will be re-established on reconnect)
+        ctx.subscriptionIds.clear();
+        
+        // Cleanup expired quotes from cache (keep cache for potential late quote_status)
+        const now = Date.now();
+        for (const [hash, quote] of ctx.quoteCache.entries()) {
+            if (now > quote.deadlineMs + 60000) { // Expired + 60s buffer
+                ctx.quoteCache.delete(hash);
+            }
+        }
 
         console.log('WS Closed');
         reconnectAttempts++;
-        connectToBusWithRetry(ctx, quoterService, hedgerService, nearService, logger);
+        connectToBusWithRetry(ctx, quoterService, hedgerService, nearService, hlService, inventoryManager, logger);
     });
 }
 
