@@ -43,6 +43,7 @@ interface SolverContext {
     requestCounter: number;
     quoteCache: Map<string, CachedQuote>;  // quoteHash -> quote data
     subscriptionIds: Map<string, string>;  // subscriptionId -> event type
+    loggedIntents: Set<string>;  // Deduplicate "other solver won" messages
 }
 
 async function main() {
@@ -110,6 +111,7 @@ async function main() {
         requestCounter: 3, // Start at 3 to avoid collision with subscription ids: 1, 2
         quoteCache: new Map(),
         subscriptionIds: new Map(),
+        loggedIntents: new Set(),
     };
 
     // Graceful Shutdown
@@ -261,8 +263,18 @@ async function connectToBusWithRetry(
                         });
                     }
                 } else {
-                    // Other solver won - log for visibility
-                    console.log(`📨 Other solver won | Tx: ${statusData.tx_hash?.substring(0, 8) || 'unknown'}...`);
+                    // Other solver won - deduplicate by intent_hash to avoid spam
+                    const intentHash = statusData.intent_hash;
+                    if (intentHash && !ctx.loggedIntents.has(intentHash)) {
+                        ctx.loggedIntents.add(intentHash);
+                        console.log(`📨 Other solver won | Tx: ${statusData.tx_hash?.substring(0, 8) || 'unknown'}...`);
+                        
+                        // Cleanup old logged intents (keep last 200 to prevent memory leak)
+                        if (ctx.loggedIntents.size > 200) {
+                            const toDelete = Array.from(ctx.loggedIntents).slice(0, 100);
+                            toDelete.forEach(hash => ctx.loggedIntents.delete(hash));
+                        }
+                    }
                 }
                 return;
             }
