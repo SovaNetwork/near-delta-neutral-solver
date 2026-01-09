@@ -13,15 +13,72 @@ export class NearService {
     private readonly CACHE_TTL_MS = 10000; // 10 second cache for faster reactions
     private readonly CACHE_REFRESH_THRESHOLD_MS = 7000; // Start background refresh after 7s
 
+    // Failover state
+    private rpcUrls: string[] = [];
+    private currentRpcIndex = 0;
+    private rpcFailCounts: Map<string, number> = new Map();
+    private readonly MAX_FAILS_BEFORE_SWITCH = 3;
+    private keyStore: keyStores.InMemoryKeyStore | undefined;
+
     constructor() { }
+
+    private async connectToRpc(rpcUrl: string): Promise<void> {
+        this.near = await connect({
+            networkId: NEAR_CONFIG.networkId,
+            nodeUrl: rpcUrl,
+            walletUrl: NEAR_CONFIG.walletUrl,
+            helperUrl: NEAR_CONFIG.helperUrl,
+            keyStore: this.keyStore!,
+        });
+        console.log(`[NEAR] Connected to RPC: ${rpcUrl}`);
+    }
+
+    private async switchToNextRpc(): Promise<boolean> {
+        if (this.rpcUrls.length === 0) return false;
+
+        const nextIndex = (this.currentRpcIndex + 1) % this.rpcUrls.length;
+        if (nextIndex === 0 && this.currentRpcIndex !== 0) {
+            // We've cycled through all RPCs
+            console.warn(`[NEAR] All RPCs failed, cycling back to first`);
+        }
+        this.currentRpcIndex = nextIndex;
+        const newUrl = this.rpcUrls[this.currentRpcIndex]!;
+
+        try {
+            await this.connectToRpc(newUrl);
+            this.account = await this.near!.account(NEAR_CONFIG.SOLVER_ID);
+            console.log(`[NEAR] Switched to RPC: ${newUrl}`);
+            return true;
+        } catch (e) {
+            console.error(`[NEAR] Failed to switch to ${newUrl}:`, e);
+            return false;
+        }
+    }
+
+    private recordRpcFailure(rpcUrl: string): void {
+        const count = (this.rpcFailCounts.get(rpcUrl) || 0) + 1;
+        this.rpcFailCounts.set(rpcUrl, count);
+    }
+
+    private recordRpcSuccess(rpcUrl: string): void {
+        this.rpcFailCounts.set(rpcUrl, 0);
+    }
+
+    private getCurrentRpcUrl(): string {
+        return this.rpcUrls[this.currentRpcIndex] ?? this.rpcUrls[0] ?? '';
+    }
 
     async init() {
         if (!NEAR_CONFIG.SOLVER_PRIVATE_KEY) {
             throw new Error("SOLVER_PRIVATE_KEY is required but not set");
         }
 
-        const keyStore = new keyStores.InMemoryKeyStore();
-        
+        // Store RPC URLs for failover
+        this.rpcUrls = NEAR_CONFIG.rpcUrls;
+        this.currentRpcIndex = 0;
+
+        this.keyStore = new keyStores.InMemoryKeyStore();
+
         let keyPair: KeyPair;
         try {
             keyPair = KeyPair.fromString(NEAR_CONFIG.SOLVER_PRIVATE_KEY as any);
@@ -29,17 +86,19 @@ export class NearService {
             throw new Error(`Invalid SOLVER_PRIVATE_KEY format: ${e instanceof Error ? e.message : String(e)}`);
         }
 
-        await keyStore.setKey(NEAR_CONFIG.networkId, NEAR_CONFIG.SOLVER_ID, keyPair);
+        await this.keyStore.setKey(NEAR_CONFIG.networkId, NEAR_CONFIG.SOLVER_ID, keyPair);
 
-        this.near = await connect({
-            ...NEAR_CONFIG,
-            keyStore,
-        });
+        // Connect to the first available RPC
+        const firstRpc = this.rpcUrls[0];
+        if (!firstRpc) {
+            throw new Error("No RPC URLs configured");
+        }
+        await this.connectToRpc(firstRpc);
 
-        this.account = await this.near.account(NEAR_CONFIG.SOLVER_ID);
+        this.account = await this.near!.account(NEAR_CONFIG.SOLVER_ID);
 
         // Pre-load the key pair for faster signing
-        const signerKeyStore = (this.near.connection.signer as any).keyStore;
+        const signerKeyStore = (this.near!.connection.signer as any).keyStore;
         this.keyPair = await signerKeyStore.getKey(NEAR_CONFIG.networkId, NEAR_CONFIG.SOLVER_ID);
 
         if (!this.keyPair) {
@@ -79,7 +138,7 @@ export class NearService {
         const bs58 = await import('bs58');
         this.publicKeyString = `ed25519:${bs58.default.encode(this.keyPair.getPublicKey().data)}`;
 
-        console.log(`NearService initialized for ${NEAR_CONFIG.SOLVER_ID}`);
+        console.log(`NearService initialized for ${NEAR_CONFIG.SOLVER_ID} with ${this.rpcUrls.length} RPC endpoints`);
     }
 
     getAccount(): Account {
@@ -111,11 +170,12 @@ export class NearService {
         }
 
         // Only fetch intents balance (wallet balance is unused, removing saves ~15-30ms)
-        const intentsBalance = await this.account.viewFunction({
-            contractId: NEAR_CONFIG.INTENTS_CONTRACT_ID,
-            methodName: 'mt_balance_of',
-            args: { account_id: this.account.accountId, token_id: `nep141:${tokenId}` }
-        }).then(res => new BigNumber(res)).catch((e) => {
+        // Use viewContract for automatic RPC failover
+        const intentsBalance = await this.viewContract(
+            NEAR_CONFIG.INTENTS_CONTRACT_ID,
+            'mt_balance_of',
+            { account_id: this.account.accountId, token_id: `nep141:${tokenId}` }
+        ).then(res => new BigNumber(res)).catch((e) => {
             console.warn(`[Balance] Could not fetch intents balance for ${tokenId}:`, e);
             return new BigNumber(0);
         });
@@ -130,11 +190,12 @@ export class NearService {
 
         try {
             // Only fetch intents balance (wallet balance is unused)
-            const intentsBalance = await this.account.viewFunction({
-                contractId: NEAR_CONFIG.INTENTS_CONTRACT_ID,
-                methodName: 'mt_balance_of',
-                args: { account_id: this.account.accountId, token_id: `nep141:${tokenId}` }
-            }).then(res => new BigNumber(res)).catch(() => new BigNumber(0));
+            // Use viewContract for automatic RPC failover
+            const intentsBalance = await this.viewContract(
+                NEAR_CONFIG.INTENTS_CONTRACT_ID,
+                'mt_balance_of',
+                { account_id: this.account.accountId, token_id: `nep141:${tokenId}` }
+            ).then(res => new BigNumber(res)).catch(() => new BigNumber(0));
 
             this.balanceCache.set(tokenId, { balance: intentsBalance, timestamp: Date.now(), refreshing: false });
         } catch (e) {
@@ -149,11 +210,49 @@ export class NearService {
 
     async viewContract(contractId: string, method: string, args: any): Promise<any> {
         if (!this.account) throw new Error("NearService not initialized");
-        return this.account.viewFunction({
-            contractId,
-            methodName: method,
-            args
-        });
+
+        const maxRetries = this.rpcUrls.length;
+        let lastError: any;
+
+        for (let attempt = 0; attempt < maxRetries; attempt++) {
+            try {
+                const result = await this.account.viewFunction({
+                    contractId,
+                    methodName: method,
+                    args
+                });
+                this.recordRpcSuccess(this.getCurrentRpcUrl());
+                return result;
+            } catch (e: any) {
+                lastError = e;
+                const currentUrl = this.getCurrentRpcUrl();
+                this.recordRpcFailure(currentUrl);
+
+                const failCount = this.rpcFailCounts.get(currentUrl) || 0;
+                const isRpcError = e?.message?.includes('429') ||
+                    e?.message?.includes('502') ||
+                    e?.message?.includes('503') ||
+                    e?.message?.includes('timeout') ||
+                    e?.message?.includes('ECONNREFUSED') ||
+                    e?.message?.includes('ETIMEDOUT') ||
+                    e?.type === 'system';
+
+                if (isRpcError && failCount >= this.MAX_FAILS_BEFORE_SWITCH) {
+                    console.warn(`[NEAR] RPC ${currentUrl} failed ${failCount} times, switching...`);
+                    const switched = await this.switchToNextRpc();
+                    if (switched) {
+                        continue; // Retry with new RPC
+                    }
+                }
+
+                // If not an RPC error or couldn't switch, throw
+                if (!isRpcError) {
+                    throw e;
+                }
+            }
+        }
+
+        throw lastError;
     }
 
     // Synchronous sign using tweetnacl directly (faster than near-api-js KeyPair.sign)

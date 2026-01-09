@@ -1,8 +1,31 @@
+// RPC endpoints for failover (order = priority)
+// FASTNEAR is fastest, Lava and dRPC as backups
+const DEFAULT_RPC_URLS = [
+    'https://free.rpc.fastnear.com',
+    'https://near.lava.build',
+    'https://near.drpc.org',
+];
+
+// Parse RPC URLs from env (comma-separated) or use defaults
+const parseRpcUrls = (): string[] => {
+    const envUrls = process.env.NEAR_RPC_URLS;
+    if (envUrls) {
+        return envUrls.split(',').map(url => url.trim()).filter(Boolean);
+    }
+    // Also support single URL for backwards compatibility
+    const singleUrl = process.env.NEAR_RPC_URL;
+    if (singleUrl) {
+        return [singleUrl, ...DEFAULT_RPC_URLS.filter(u => u !== singleUrl)];
+    }
+    return DEFAULT_RPC_URLS;
+};
+
 export const NEAR_CONFIG = {
     networkId: process.env.NEAR_NETWORK_ID || 'mainnet',
-    // dRPC has 210M CU/month free tier - most generous public RPC
-    // Alternatives: https://near.blockpi.network/v1/rpc/public (50M/month), https://near.lava.build
-    nodeUrl: process.env.NEAR_RPC_URL || 'https://near.drpc.org',
+    // Primary RPC URL (first in list, for near-api-js connect())
+    nodeUrl: parseRpcUrls()[0],
+    // All RPC URLs for failover
+    rpcUrls: parseRpcUrls(),
     walletUrl: 'https://wallet.near.org',
     helperUrl: 'https://helper.mainnet.near.org',
     explorerUrl: 'https://explorer.near.org',
