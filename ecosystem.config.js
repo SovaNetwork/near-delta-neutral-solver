@@ -5,6 +5,7 @@ module.exports = {
     apps: [{
         name: "sova-delta-neutral-solver",
         script: "./dist/app.js", // Points to the built file
+        cwd: "/home/ec2-user/near-delta-neutral-solver", // Ensures .env is found
         env: {
             NODE_ENV: "production",
             LOGS_DIR: logsDir,  // Pass to app for trades.jsonl and positions.jsonl
