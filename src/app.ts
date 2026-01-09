@@ -1,3 +1,7 @@
+// IMPORTANT: Load .env BEFORE any other imports that use process.env
+import * as dotenv from 'dotenv';
+dotenv.config();
+
 import { NearService } from './services/near.service';
 import { HyperliquidService } from './services/hyperliquid.service';
 import { InventoryStateService } from './services/inventory-manager.service';
@@ -9,13 +13,10 @@ import { ApiService } from './services/api.service';
 import { BTC_ONLY_CONFIG } from './configs/btc-only.config';
 import { NEAR_CONFIG } from './configs/near.config';
 import WebSocket from 'ws';
-import * as dotenv from 'dotenv';
 import { performance } from 'perf_hooks';
 import bs58 from 'bs58';
 import { SignStandardEnum, IMessage } from './interfaces/intents.interface';
 import { serializeIntent, generateRandomNonce } from './utils/hashing';
-
-dotenv.config();
 
 const SOLVER_BUS_WS = process.env.SOLVER_BUS_WS_URL || 'wss://solver-relay-v2.chaindefuser.com/ws';
 
