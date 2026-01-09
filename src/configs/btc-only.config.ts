@@ -76,7 +76,7 @@ export const BTC_ONLY_CONFIG = {
     // e.g., -0.0005 = -0.05%/hr = we reject quotes if funding < -0.05%/hr
     MAX_NEGATIVE_FUNDING_RATE: parseFloat(process.env.MAX_NEGATIVE_FUNDING_RATE || process.env.MIN_HOURLY_FUNDING_RATE || '-0.0005'),
     DRIFT_THRESHOLD_BTC: parseFloat(process.env.DRIFT_THRESHOLD_BTC || '0.001'),
-    MIN_TRADE_SIZE_BTC: parseFloat(process.env.MIN_TRADE_SIZE_BTC || '0.0001'),
+    MIN_TRADE_SIZE_BTC: parseFloat(process.env.MIN_TRADE_SIZE_BTC || '0.001'),
     MAX_TRADE_SIZE_BTC: parseFloat(process.env.MAX_TRADE_SIZE_BTC || '1.0'),
 
     // Hedge execution
