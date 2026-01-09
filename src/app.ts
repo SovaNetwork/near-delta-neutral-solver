@@ -335,7 +335,7 @@ async function connectToBusWithRetry(
                 const amountOutFloat = +finalAmountOut / pow10Out;
 
                 // Build proper intents message
-                const quoteDeadlineMs = quoteData.min_deadline_ms + 60000; // Add 60s buffer
+                const quoteDeadlineMs = quoteData.min_deadline_ms + 15000; // Add 15s buffer (tighter = better prices)
                 const standard = SignStandardEnum.nep413;
 
                 // Add nep141: prefix back for intents

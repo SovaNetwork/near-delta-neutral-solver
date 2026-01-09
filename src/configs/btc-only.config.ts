@@ -61,8 +61,7 @@ export const BTC_ONLY_CONFIG = {
     MAX_BTC_INVENTORY: parseFloat(process.env.MAX_BTC_INVENTORY || '5.0'),
     MIN_USDT_RESERVE: parseFloat(process.env.MIN_USDT_RESERVE || '2000.0'),
 
-    TARGET_SPREAD_BIPS: parseInt(process.env.TARGET_SPREAD_BIPS || '200', 10), // 2%
-
+    TARGET_SPREAD_BIPS: parseInt(process.env.TARGET_SPREAD_BIPS || '30', 10), // 0.3%
     // Risk
     MIN_MARGIN_THRESHOLD: parseFloat(process.env.MIN_MARGIN_THRESHOLD || '1000.0'), // Min USDC margin on HL
     // Maximum negative funding rate we'll tolerate for short positions
