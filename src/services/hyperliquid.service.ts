@@ -353,7 +353,9 @@ export class HyperliquidService {
         const limitPx = isBuy
             ? currentPrice * (1 + slippageBps / 10000)
             : currentPrice * (1 - slippageBps / 10000);
-        const price = Number(limitPx.toFixed(1));
+        // BTC tick size is 1.0 (whole dollars) on Hyperliquid
+        // Round up for buys (more aggressive), round down for shorts (more aggressive)
+        const price = isBuy ? Math.ceil(limitPx) : Math.floor(limitPx);
 
         // Round size DOWN to 5 decimal places (BTC szDecimals = 5 per Hyperliquid docs)
         // See: https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/tick-and-lot-size
