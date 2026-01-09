@@ -56,13 +56,16 @@ export class QuoterService {
     /**
      * Calculate effective spread based on basis (perp vs spot)
      *
+     * Strategy: Basis can only HELP (tighten spread), never HURT (widen spread).
+     * This keeps us competitive while capturing extra profit when basis is favorable.
+     *
      * When we BUY BTC (user sells to us), we SHORT perp to hedge:
-     * - Positive basis (perp > spot): Favorable - we short at premium, can tighten spread
-     * - Negative basis (perp < spot): Adverse - we short at discount, widen spread
+     * - Positive basis (perp > spot): Favorable - tighten spread
+     * - Negative basis (perp < spot): Adverse - stay at base spread (don't widen)
      *
      * When we SELL BTC (user buys from us), we LONG perp to hedge:
-     * - Positive basis (perp > spot): Adverse - we buy at premium, widen spread
-     * - Negative basis (perp < spot): Favorable - we buy at discount, tighten spread
+     * - Positive basis (perp > spot): Adverse - stay at base spread (don't widen)
+     * - Negative basis (perp < spot): Favorable - tighten spread
      */
     private calculateEffectiveSpread(weAreBuyingBtc: boolean): number {
         // If dynamic spread disabled or no spot price service, use static spread
@@ -84,26 +87,22 @@ export class QuoterService {
 
         this.lastBasisBps = basisBps;
 
-        // Base spread covers fees (~4-5 bps) + minimum profit
+        // Base spread is our competitive rate
         const baseBps = BTC_ONLY_CONFIG.BASE_SPREAD_BIPS;
-        const maxBps = BTC_ONLY_CONFIG.MAX_SPREAD_BIPS;
 
-        let effectiveBps: number;
+        // Calculate favorable basis (only positive values reduce our spread)
+        let favorableBasisBps: number;
 
         if (weAreBuyingBtc) {
-            // We short perp to hedge
-            // Positive basis is favorable (adds to our profit), negative is adverse (reduces profit)
-            // Subtract basis because positive basis helps us, negative hurts us
-            effectiveBps = baseBps - basisBps;
+            // We short perp - positive basis is favorable (we short at premium)
+            favorableBasisBps = Math.max(0, basisBps);
         } else {
-            // We long perp to hedge
-            // Positive basis is adverse (we pay premium), negative is favorable (we get discount)
-            // Add basis because positive basis hurts us, negative helps us
-            effectiveBps = baseBps + basisBps;
+            // We long perp - negative basis is favorable (we buy at discount)
+            favorableBasisBps = Math.max(0, -basisBps);
         }
 
-        // Clamp to [baseBps, maxBps] - never go below base (ensures profit), never above max
-        effectiveBps = Math.max(baseBps, Math.min(maxBps, effectiveBps));
+        // Tighten spread by favorable basis, but never below 0
+        const effectiveBps = Math.max(0, baseBps - favorableBasisBps);
 
         this.lastEffectiveSpreadBps = effectiveBps;
 
