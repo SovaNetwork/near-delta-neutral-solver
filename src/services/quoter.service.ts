@@ -3,6 +3,7 @@ import { HyperliquidService } from './hyperliquid.service';
 import { BTC_ONLY_CONFIG } from '../configs/btc-only.config';
 import { NearService } from './near.service';
 import { LoggerService } from './logger.service';
+import { SpotPriceService } from './spot-price.service';
 
 export interface QuoteRequest {
     token_in: string;
@@ -40,12 +41,84 @@ export class QuoterService {
     private quotesReceived: number = 0;
     private quotesGenerated: number = 0;
 
+    // Track last basis for logging
+    private lastBasisBps: number | null = null;
+    private lastEffectiveSpreadBps: number | null = null;
+
     constructor(
         private inventoryManager: InventoryStateService,
         private hyperliquidService: HyperliquidService,
         private nearService: NearService,
-        private logger: LoggerService
+        private logger: LoggerService,
+        private spotPriceService?: SpotPriceService
     ) { }
+
+    /**
+     * Calculate effective spread based on basis (perp vs spot)
+     *
+     * When we BUY BTC (user sells to us), we SHORT perp to hedge:
+     * - Positive basis (perp > spot): Favorable - we short at premium, can tighten spread
+     * - Negative basis (perp < spot): Adverse - we short at discount, widen spread
+     *
+     * When we SELL BTC (user buys from us), we LONG perp to hedge:
+     * - Positive basis (perp > spot): Adverse - we buy at premium, widen spread
+     * - Negative basis (perp < spot): Favorable - we buy at discount, tighten spread
+     */
+    private calculateEffectiveSpread(weAreBuyingBtc: boolean): number {
+        // If dynamic spread disabled or no spot price service, use static spread
+        if (!BTC_ONLY_CONFIG.DYNAMIC_SPREAD_ENABLED || !this.spotPriceService) {
+            return BTC_ONLY_CONFIG.TARGET_SPREAD_BIPS / 10000;
+        }
+
+        // Get perp mid price from orderbook
+        const orderbook = this.hyperliquidService.getOrderbookSummary();
+        if (!orderbook) {
+            return BTC_ONLY_CONFIG.TARGET_SPREAD_BIPS / 10000;
+        }
+
+        // Calculate basis
+        const basisBps = this.spotPriceService.calculateBasisBps(orderbook.midPrice);
+        if (basisBps === null) {
+            return BTC_ONLY_CONFIG.TARGET_SPREAD_BIPS / 10000;
+        }
+
+        this.lastBasisBps = basisBps;
+
+        // Base spread covers fees (~4-5 bps) + minimum profit
+        const baseBps = BTC_ONLY_CONFIG.BASE_SPREAD_BIPS;
+        const maxBps = BTC_ONLY_CONFIG.MAX_SPREAD_BIPS;
+
+        let effectiveBps: number;
+
+        if (weAreBuyingBtc) {
+            // We short perp to hedge
+            // Positive basis is favorable (adds to our profit), negative is adverse (reduces profit)
+            // Subtract basis because positive basis helps us, negative hurts us
+            effectiveBps = baseBps - basisBps;
+        } else {
+            // We long perp to hedge
+            // Positive basis is adverse (we pay premium), negative is favorable (we get discount)
+            // Add basis because positive basis hurts us, negative helps us
+            effectiveBps = baseBps + basisBps;
+        }
+
+        // Clamp to [baseBps, maxBps] - never go below base (ensures profit), never above max
+        effectiveBps = Math.max(baseBps, Math.min(maxBps, effectiveBps));
+
+        this.lastEffectiveSpreadBps = effectiveBps;
+
+        return effectiveBps / 10000;
+    }
+
+    /**
+     * Get basis info for monitoring/logging
+     */
+    getBasisInfo(): { basisBps: number | null; effectiveSpreadBps: number | null } {
+        return {
+            basisBps: this.lastBasisBps,
+            effectiveSpreadBps: this.lastEffectiveSpreadBps,
+        };
+    }
 
     private reject(reason: QuoteRejectionReason): undefined {
         this.lastRejectionReason = reason;
@@ -195,8 +268,8 @@ export class QuoterService {
             return this.reject('funding_rate_too_negative');
         }
 
-        // 6. Apply Spread
-        const spread = BTC_ONLY_CONFIG.TARGET_SPREAD_BIPS / 10000;
+        // 6. Apply Spread (dynamic if enabled, otherwise static)
+        const spread = this.calculateEffectiveSpread(weAreBuyingBtc);
 
         // Calculate the missing amount (either amount_in or amount_out)
         if (isExactOut) {

@@ -10,6 +10,7 @@ import { HedgerService } from './services/hedger.service';
 import { CronService } from './services/cron.service';
 import { LoggerService, shortId } from './services/logger.service';
 import { ApiService } from './services/api.service';
+import { SpotPriceService } from './services/spot-price.service';
 import { BTC_ONLY_CONFIG } from './configs/btc-only.config';
 import { NEAR_CONFIG } from './configs/near.config';
 import WebSocket from 'ws';
@@ -63,6 +64,11 @@ async function main() {
     console.log("  HYPERLIQUID_MAINNET:", process.env.HYPERLIQUID_MAINNET !== 'false' ? 'true (mainnet)' : 'false (testnet)');
     console.log("  MAX_TRADE_SIZE_BTC:", BTC_ONLY_CONFIG.MAX_TRADE_SIZE_BTC);
     console.log("  TARGET_SPREAD_BIPS:", BTC_ONLY_CONFIG.TARGET_SPREAD_BIPS);
+    console.log("  DYNAMIC_SPREAD_ENABLED:", BTC_ONLY_CONFIG.DYNAMIC_SPREAD_ENABLED ? 'true' : 'false');
+    if (BTC_ONLY_CONFIG.DYNAMIC_SPREAD_ENABLED) {
+        console.log("  BASE_SPREAD_BIPS:", BTC_ONLY_CONFIG.BASE_SPREAD_BIPS);
+        console.log("  MAX_SPREAD_BIPS:", BTC_ONLY_CONFIG.MAX_SPREAD_BIPS);
+    }
     console.log("  HEDGE_SLIPPAGE_BPS:", BTC_ONLY_CONFIG.HEDGE_SLIPPAGE_BPS);
     console.log("  MAX_ORDERBOOK_AGE_MS:", BTC_ONLY_CONFIG.MAX_ORDERBOOK_AGE_MS);
     console.log("  HEDGING_ENABLED:", BTC_ONLY_CONFIG.HEDGING_ENABLED ? 'true' : 'false (HEDGING DISABLED!)');
@@ -82,6 +88,13 @@ async function main() {
     const hlService = new HyperliquidService();
     await hlService.init();
 
+    // Initialize spot price service for dynamic spread (if enabled)
+    let spotPriceService: SpotPriceService | undefined;
+    if (BTC_ONLY_CONFIG.DYNAMIC_SPREAD_ENABLED) {
+        spotPriceService = new SpotPriceService();
+        await spotPriceService.start();
+    }
+
     // Use PORT env var if available (Railway uses this), otherwise fallback to API_PORT or 3000
     // Note: On Railway, you must listen on process.env.PORT unless you override it in Railway settings.
     const rawPort = process.env.PORT || process.env.API_PORT || '3000';
@@ -89,7 +102,7 @@ async function main() {
     console.log(`Port Configuration: Using ${port} (Source: ${process.env.PORT ? 'PORT (Railway)' : (process.env.API_PORT ? 'API_PORT' : 'Default')})`);
 
     const inventoryManager = new InventoryStateService(nearService, hlService);
-    const quoterService = new QuoterService(inventoryManager, hlService, nearService, logger);
+    const quoterService = new QuoterService(inventoryManager, hlService, nearService, logger, spotPriceService);
     const hedgerService = new HedgerService(nearService, hlService, inventoryManager, logger);
     const cronService = new CronService(nearService, hlService, logger, inventoryManager);
     cronService.setQuoterService(quoterService);  // Wire up for quote stats logging
@@ -129,6 +142,7 @@ async function main() {
         cronService.stop();
         apiService.stop();
         hlService.stopHealthCheck();
+        if (spotPriceService) spotPriceService.stop();
         process.exit(0);
     };
 

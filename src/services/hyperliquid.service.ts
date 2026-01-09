@@ -355,14 +355,18 @@ export class HyperliquidService {
             : currentPrice * (1 - slippageBps / 10000);
         const price = Number(limitPx.toFixed(1));
 
-        console.log(`Executing Hedge: ${direction} ${size} BTC @ ~${price} (slippage: ${slippageBps}bps)`);
+        // Round size DOWN to 5 decimal places (BTC szDecimals = 5 per Hyperliquid docs)
+        // See: https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/tick-and-lot-size
+        const roundedSize = Math.floor(size * 100000) / 100000;
+
+        console.log(`Executing Hedge: ${direction} ${roundedSize} BTC @ ~${price} (slippage: ${slippageBps}bps)`);
 
         const result = await this.exchangeClient.order({
             orders: [{
                 a: this.assetIndex,
                 b: isBuy,
                 p: price.toString(),
-                s: size.toString(),
+                s: roundedSize.toString(),
                 r: false,
                 t: { limit: { tif: 'Ioc' } }
             }],

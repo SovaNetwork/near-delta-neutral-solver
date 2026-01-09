@@ -36,11 +36,11 @@ The solver maintains delta neutrality by holding offsetting positions: spot BTC 
 │  │  (balances)  │    │(bg refresh)  │                                       │
 │  └──────────────┘    └──────────────┘                                       │
 │                                                                             │
-│  ┌──────────────┐    ┌──────────────┐                                       │
-│  │  ApiService  │    │LoggerService │                                       │
-│  │ (dashboard)  │    │  (trades)    │                                       │
-│  └──────────────┘    └──────────────┘                                       │
-│                                                                             │
+│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐                   │
+│  │  ApiService  │    │LoggerService │    │  SpotPrice   │                   │
+│  │ (dashboard)  │    │  (trades)    │    │  Service     │                   │
+│  └──────────────┘    └──────────────┘    │(basis calc)  │                   │
+│                                          └──────────────┘                   │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -69,9 +69,28 @@ Calculates competitive quotes with **zero network I/O** in the hot path.
 **Pricing Logic:**
 - Uses real-time L2 orderbook data from Hyperliquid (streamed via WebSocket)
 - Calculates volume-weighted average price (VWAP) for the requested size
-- Applies configurable spread (`TARGET_SPREAD_BIPS`) to the reference price
+- Applies spread to the reference price (static or dynamic)
 - For buys: `finalPrice = referencePrice * (1 - spread)`
 - For sells: `finalPrice = referencePrice * (1 + spread)`
+
+**Static Spread Mode (default):**
+- Uses `TARGET_SPREAD_BIPS` as a fixed spread for all quotes
+
+**Dynamic Spread Mode** (enabled via `DYNAMIC_SPREAD_ENABLED=true`):
+- Fetches BTC spot price from Coinbase/Binance every 10 seconds
+- Calculates **basis** = `(perpPrice - spotPrice) / spotPrice`
+- Adjusts spread based on basis direction to ensure consistent profitability:
+
+| Direction | Hedge Action | Basis | Impact | Spread Adjustment |
+|-----------|--------------|-------|--------|-------------------|
+| Buy BTC | Short perp | Positive (perp > spot) | Favorable - we short at premium | Tighten spread |
+| Buy BTC | Short perp | Negative (perp < spot) | Adverse - we short at discount | Widen spread |
+| Sell BTC | Long perp | Positive (perp > spot) | Adverse - we buy at premium | Widen spread |
+| Sell BTC | Long perp | Negative (perp < spot) | Favorable - we buy at discount | Tighten spread |
+
+Formula: `effectiveSpread = BASE_SPREAD_BIPS ± basisBps` (clamped to `[BASE_SPREAD_BIPS, MAX_SPREAD_BIPS]`)
+
+This ensures the solver maintains consistent profit margins regardless of the perp/spot basis, which can fluctuate 0-15 bps throughout the day.
 
 **Gating Checks (all synchronous from cached RiskSnapshot):**
 - Inventory direction (can we buy/sell BTC?)
@@ -245,9 +264,35 @@ cp .env.example .env
 |----------|---------|-------------|
 | `MAX_BTC_INVENTORY` | `5.0` | Maximum BTC to hold before stopping buys |
 | `MIN_USDT_RESERVE` | `2000.0` | Minimum USDT to keep (stop buying if below) |
-| `TARGET_SPREAD_BIPS` | `200` | Spread in basis points (200 = 2%) |
-| `MIN_TRADE_SIZE_BTC` | `0.0001` | Minimum quote size |
+| `TARGET_SPREAD_BIPS` | `30` | Spread in basis points (used when dynamic spread is disabled) |
+| `MIN_TRADE_SIZE_BTC` | `0.001` | Minimum quote size (Hyperliquid minimum) |
 | `MAX_TRADE_SIZE_BTC` | `1.0` | Maximum quote size |
+
+### Dynamic Spread (Basis-Adjusted)
+
+Enable dynamic spread to automatically adjust pricing based on the perp/spot basis:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DYNAMIC_SPREAD_ENABLED` | `false` | Enable basis-adjusted dynamic spread |
+| `BASE_SPREAD_BIPS` | `15` | Minimum spread (covers HL fees ~5 bps + profit margin) |
+| `MAX_SPREAD_BIPS` | `50` | Maximum spread cap |
+| `SPOT_PRICE_SOURCE` | `coinbase` | Primary spot price source (`coinbase` or `binance`) |
+| `SPOT_PRICE_UPDATE_INTERVAL_MS` | `10000` | How often to fetch spot price (ms) |
+| `SPOT_PRICE_FALLBACK` | `true` | Try alternate source if primary fails |
+
+**Example Configuration:**
+```bash
+# Enable dynamic spread for consistent profitability
+DYNAMIC_SPREAD_ENABLED=true
+BASE_SPREAD_BIPS=15    # Covers ~5 bps HL fees + 10 bps profit
+MAX_SPREAD_BIPS=50     # Cap spread during extreme basis
+```
+
+**How it works:**
+- When basis is favorable (e.g., +10 bps when shorting), effective spread = 15 - 10 = 5 bps
+- When basis is adverse (e.g., -5 bps when shorting), effective spread = 15 + 5 = 20 bps
+- Spread never goes below `BASE_SPREAD_BIPS` (ensures minimum profit) or above `MAX_SPREAD_BIPS`
 
 ### Risk Management
 
@@ -376,7 +421,8 @@ src/
 │   ├── inventory-manager.service.ts  # Risk state management
 │   ├── logger.service.ts       # Structured logging
 │   ├── near.service.ts         # NEAR Protocol integration
-│   └── quoter.service.ts       # Quote calculation
+│   ├── quoter.service.ts       # Quote calculation
+│   └── spot-price.service.ts   # Spot price feed for basis calculation
 └── utils/
     └── hashing.ts              # NEP-413 serialization and signing
 
