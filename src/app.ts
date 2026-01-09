@@ -64,6 +64,7 @@ async function main() {
     console.log("  TARGET_SPREAD_BIPS:", BTC_ONLY_CONFIG.TARGET_SPREAD_BIPS);
     console.log("  HEDGE_SLIPPAGE_BPS:", BTC_ONLY_CONFIG.HEDGE_SLIPPAGE_BPS);
     console.log("  MAX_ORDERBOOK_AGE_MS:", BTC_ONLY_CONFIG.MAX_ORDERBOOK_AGE_MS);
+    console.log("  HEDGING_ENABLED:", BTC_ONLY_CONFIG.HEDGING_ENABLED ? 'true' : 'false (HEDGING DISABLED!)');
 
     if (BTC_ONLY_CONFIG.HEDGE_SLIPPAGE_BPS < 1 || BTC_ONLY_CONFIG.HEDGE_SLIPPAGE_BPS > 500) {
         throw new Error(`Invalid HEDGE_SLIPPAGE_BPS: ${BTC_ONLY_CONFIG.HEDGE_SLIPPAGE_BPS} (must be 1-500)`);
@@ -90,6 +91,7 @@ async function main() {
     const quoterService = new QuoterService(inventoryManager, hlService, nearService, logger);
     const hedgerService = new HedgerService(nearService, hlService, inventoryManager, logger);
     const cronService = new CronService(nearService, hlService, logger, inventoryManager);
+    cronService.setQuoterService(quoterService);  // Wire up for quote stats logging
     const apiService = new ApiService(hedgerService, hlService, nearService, logger, port);
 
     // Pre-warm risk snapshot before starting services
@@ -233,34 +235,48 @@ async function connectToBusWithRetry(
                 if (cachedQuote) {
                     // OUR QUOTE WAS EXECUTED! Execute hedge immediately
                     console.log(`💰 [${shortId(cachedQuote.nonce)}] SETTLED via quote_status | executing hedge...`);
-                    
+
                     ctx.quoteCache.delete(quoteHash);
                     hedgerService.removeQuote(cachedQuote.nonce); // Remove from polling
-                    
-                    try {
-                        const result = await hlService.executeHedge(cachedQuote.direction, cachedQuote.amountBtc);
-                        console.log(`✅ [${shortId(cachedQuote.nonce)}] HEDGED | ${cachedQuote.direction} ${cachedQuote.amountBtc.toFixed(6)} BTC | Tx: ${statusData.tx_hash?.substring(0, 8) || 'unknown'}...`);
-                        
+
+                    // Check if hedging is disabled via circuit breaker
+                    if (!BTC_ONLY_CONFIG.HEDGING_ENABLED) {
+                        console.log(`[HEDGER] SKIP [${shortId(cachedQuote.nonce)}] | hedging disabled | would ${cachedQuote.direction} ${cachedQuote.amountBtc.toFixed(6)} BTC`);
                         logger.logTrade({
-                            type: 'HEDGE_EXECUTED',
+                            type: 'SETTLEMENT_DETECTED',
                             nonce: cachedQuote.nonce,
                             direction: cachedQuote.direction,
                             amountBtc: cachedQuote.amountBtc,
                             txHash: statusData.tx_hash,
+                            reason: 'hedging_disabled',
                             timestamp: new Date().toISOString()
                         });
-                    } catch (hedgeErr) {
-                        console.error(`🚨 [${shortId(cachedQuote.nonce)}] HEDGE FAILED | ${cachedQuote.direction} ${cachedQuote.amountBtc.toFixed(6)} BTC`, hedgeErr);
-                        inventoryManager.setEmergencyMode(true);
-                        
-                        logger.logTrade({
-                            type: 'HEDGE_FAILED',
-                            nonce: cachedQuote.nonce,
-                            direction: cachedQuote.direction,
-                            amountBtc: cachedQuote.amountBtc,
-                            error: String(hedgeErr),
-                            timestamp: new Date().toISOString()
-                        });
+                    } else {
+                        try {
+                            const result = await hlService.executeHedge(cachedQuote.direction, cachedQuote.amountBtc);
+                            console.log(`✅ [${shortId(cachedQuote.nonce)}] HEDGED | ${cachedQuote.direction} ${cachedQuote.amountBtc.toFixed(6)} BTC | Tx: ${statusData.tx_hash?.substring(0, 8) || 'unknown'}...`);
+
+                            logger.logTrade({
+                                type: 'HEDGE_EXECUTED',
+                                nonce: cachedQuote.nonce,
+                                direction: cachedQuote.direction,
+                                amountBtc: cachedQuote.amountBtc,
+                                txHash: statusData.tx_hash,
+                                timestamp: new Date().toISOString()
+                            });
+                        } catch (hedgeErr) {
+                            console.error(`[ERROR] [${shortId(cachedQuote.nonce)}] HEDGE FAILED | ${cachedQuote.direction} ${cachedQuote.amountBtc.toFixed(6)} BTC`, hedgeErr);
+                            inventoryManager.setEmergencyMode(true);
+
+                            logger.logTrade({
+                                type: 'HEDGE_FAILED',
+                                nonce: cachedQuote.nonce,
+                                direction: cachedQuote.direction,
+                                amountBtc: cachedQuote.amountBtc,
+                                error: String(hedgeErr),
+                                timestamp: new Date().toISOString()
+                            });
+                        }
                     }
                 } else {
                     // Other solver won - deduplicate by intent_hash to avoid spam

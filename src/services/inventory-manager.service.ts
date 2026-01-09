@@ -104,7 +104,7 @@ export class InventoryStateService {
 
             this.cachedDirection = this.computeDirection();
         } catch (e) {
-            console.error("Failed to refresh risk snapshot:", e);
+            console.error("[ERROR] Failed to refresh risk snapshot:", e);
         } finally {
             this.refreshing = false;
         }

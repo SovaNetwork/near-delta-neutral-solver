@@ -75,4 +75,7 @@ export const BTC_ONLY_CONFIG = {
     // Hedge execution
     HEDGE_SLIPPAGE_BPS: parseInt(process.env.HEDGE_SLIPPAGE_BPS || '30', 10), // 0.3% slippage tolerance
     MAX_ORDERBOOK_AGE_MS: parseInt(process.env.MAX_ORDERBOOK_AGE_MS || '2000', 10), // Reject quotes if orderbook stale >2s
+
+    // Circuit breaker - set to 'false' to disable hedging (for debugging/testing)
+    HEDGING_ENABLED: process.env.HEDGING_ENABLED !== 'false',
 };

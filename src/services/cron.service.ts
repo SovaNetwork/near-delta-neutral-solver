@@ -3,11 +3,13 @@ import { HyperliquidService } from './hyperliquid.service';
 import { LoggerService } from './logger.service';
 import { InventoryStateService } from './inventory-manager.service';
 import { BTC_ONLY_CONFIG } from '../configs/btc-only.config';
+import { QuoterService } from './quoter.service';
 
 export class CronService {
     private driftInterval: NodeJS.Timeout | null = null;
     private riskRefreshInterval: NodeJS.Timeout | null = null;
     private readonly RISK_REFRESH_INTERVAL_MS = 5000;
+    private quoterService: QuoterService | null = null;
 
     constructor(
         private nearService: NearService,
@@ -15,6 +17,10 @@ export class CronService {
         private logger: LoggerService,
         private inventoryManager: InventoryStateService
     ) {}
+
+    setQuoterService(quoterService: QuoterService): void {
+        this.quoterService = quoterService;
+    }
 
     start() {
         this.driftInterval = setInterval(() => this.checkDrift(), 10 * 60 * 1000);
@@ -124,8 +130,20 @@ export class CronService {
                 console.log(`[Status] READY - Quoting Active (${modes.join(', ')}).`);
             }
 
+            // Log quote rejection stats if quoter is available
+            if (this.quoterService) {
+                const stats = this.quoterService.getStats();
+                if (stats.received > 0) {
+                    const rejectionSummary = Object.entries(stats.rejections)
+                        .map(([reason, count]) => `${reason}:${count}`)
+                        .join(', ') || 'none';
+                    console.log(`[QuoteStats] received:${stats.received} generated:${stats.generated} rejections:{${rejectionSummary}}`);
+                    this.quoterService.resetStats();
+                }
+            }
+
         } catch (e) {
-            console.error("Drift Check Failed:", e);
+            console.error("[ERROR] Drift Check Failed:", e);
         }
     }
 

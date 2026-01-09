@@ -3,6 +3,7 @@ import { HyperliquidService } from './hyperliquid.service';
 import { InventoryStateService } from './inventory-manager.service';
 import { NEAR_CONFIG } from '../configs/near.config';
 import { LoggerService, shortId } from './logger.service';
+import { BTC_ONLY_CONFIG } from '../configs/btc-only.config';
 
 interface QuoteData {
     direction: 'short' | 'long'; // If we bought BTC, we execute 'short'.
@@ -31,7 +32,10 @@ export class HedgerService {
 
     start() {
         if (this.pollInterval) return;
-        console.log("Hedger Service Started.");
+        if (!BTC_ONLY_CONFIG.HEDGING_ENABLED) {
+            console.log("[HEDGER] WARN: Hedging is DISABLED via HEDGING_ENABLED=false");
+        }
+        console.log("[HEDGER] Service Started.");
         this.pollInterval = setInterval(() => this.poll(), this.POLL_INTERVAL_MS);
     }
 
@@ -105,7 +109,7 @@ export class HedgerService {
             if (batchHadRpcFailure) {
                 this.consecutiveRpcFailures++;
                 if (this.consecutiveRpcFailures >= this.MAX_RPC_FAILURES_BEFORE_EMERGENCY) {
-                    console.error(`🚨 NEAR RPC unhealthy (${this.consecutiveRpcFailures} consecutive failures) - enabling emergency mode`);
+                    console.error(`[ERROR] NEAR RPC unhealthy (${this.consecutiveRpcFailures} consecutive failures) - enabling emergency mode`);
                     this.inventoryManager.setEmergencyMode(true);
                 }
             } else if (noncesArray.length > 0) {
@@ -123,6 +127,20 @@ export class HedgerService {
                     this.pendingQuotes.delete(nonce);
 
                     if (data) {
+                        // Check if hedging is disabled via circuit breaker
+                        if (!BTC_ONLY_CONFIG.HEDGING_ENABLED) {
+                            console.log(`[HEDGER] SKIP [${shortId(nonce)}] | hedging disabled | would ${data.direction} ${data.amountBtc.toFixed(6)} BTC`);
+                            this.logger.logTrade({
+                                type: 'SETTLEMENT_DETECTED',
+                                nonce,
+                                direction: data.direction,
+                                amountBtc: data.amountBtc,
+                                reason: 'hedging_disabled',
+                                timestamp: new Date().toISOString()
+                            });
+                            continue;
+                        }
+
                         try {
                             const result = await this.hlService.executeHedge(data.direction, data.amountBtc);
                             console.log(`✅ [${shortId(nonce)}] HEDGED | ${data.direction} ${data.amountBtc.toFixed(6)} BTC`);
@@ -146,9 +164,9 @@ export class HedgerService {
                             });
 
                         } catch (hedgeErr) {
-                            console.error(`🚨 [${shortId(nonce)}] HEDGE FAILED | ${data.direction} ${data.amountBtc.toFixed(6)} BTC`, hedgeErr);
-                            console.error(`🚨 MANUAL INTERVENTION REQUIRED - unhedged position!`);
-                            console.error(`🚨 ENABLING EMERGENCY MODE - stopping all quotes`);
+                            console.error(`[ERROR] [${shortId(nonce)}] HEDGE FAILED | ${data.direction} ${data.amountBtc.toFixed(6)} BTC`, hedgeErr);
+                            console.error(`[ERROR] MANUAL INTERVENTION REQUIRED - unhedged position!`);
+                            console.error(`[ERROR] ENABLING EMERGENCY MODE - stopping all quotes`);
 
                             // Circuit breaker: stop quoting when hedge fails
                             this.inventoryManager.setEmergencyMode(true);
