@@ -298,8 +298,7 @@ async function connectToBusWithRetry(
                     const intentHash = statusData.intent_hash;
                     if (intentHash && !ctx.loggedIntents.has(intentHash)) {
                         ctx.loggedIntents.add(intentHash);
-                        // Log full status data to analyze competitor quotes
-                        console.log(`📨 Other solver won | Tx: ${statusData.tx_hash?.substring(0, 8) || 'unknown'}... | Data: ${JSON.stringify(statusData)}`);
+                        console.log(`📨 Other solver won | Tx: ${statusData.tx_hash?.substring(0, 8) || 'unknown'}...`);
                         
                         // Cleanup old logged intents (keep last 200 to prevent memory leak)
                         if (ctx.loggedIntents.size > 200) {
@@ -467,7 +466,9 @@ async function connectToBusWithRetry(
                         });
 
                         const quoteType = isExactOut ? 'OUT' : 'IN';
-                        console.log(`✅ [${shortId(nonce)}] PUBLISHED ${quoteType} | ${weAreBuyingBtc ? 'BUY' : 'SELL'} ${btcSymbol} ${amountInFloat.toFixed(6)} → ${amountOutFloat.toFixed(6)} | total:${timings.total}ms quote:${timings.quote}ms sign:${timings.sign}ms net:${timings.post}ms`);
+                        const basisInfo = quoterService.getBasisInfo();
+                        const basisStr = basisInfo.basisBps !== null ? `basis:${basisInfo.basisBps.toFixed(1)}bps spread:${basisInfo.effectiveSpreadBps?.toFixed(1)}bps` : '';
+                        console.log(`✅ [${shortId(nonce)}] PUBLISHED ${quoteType} | ${weAreBuyingBtc ? 'BUY' : 'SELL'} ${btcSymbol} ${amountInFloat.toFixed(6)} → ${amountOutFloat.toFixed(6)} | ${basisStr} | total:${timings.total}ms quote:${timings.quote}ms sign:${timings.sign}ms net:${timings.post}ms`);
 
                         logger.logTrade({
                             type: 'QUOTE_PUBLISHED',
@@ -489,7 +490,9 @@ async function connectToBusWithRetry(
                         const errorMessage = relayErr?.message || String(relayErr);
                         if (errorMessage.includes('-32098') || errorMessage.includes('not found or already finished')) {
                             const quoteType = isExactOut ? 'OUT' : 'IN';
-                            console.log(`❌ [${shortId(nonce)}] REJECTED ${quoteType} | ${weAreBuyingBtc ? 'BUY' : 'SELL'} ${btcSymbol} ${amountInFloat.toFixed(6)} | total:${timings.total}ms quote:${timings.quote}ms sign:${timings.sign}ms net:${timings.post}ms`);
+                            const basisInfo = quoterService.getBasisInfo();
+                            const basisStr = basisInfo.basisBps !== null ? `basis:${basisInfo.basisBps.toFixed(1)}bps spread:${basisInfo.effectiveSpreadBps?.toFixed(1)}bps` : '';
+                            console.log(`❌ [${shortId(nonce)}] REJECTED ${quoteType} | ${weAreBuyingBtc ? 'BUY' : 'SELL'} ${btcSymbol} ${amountInFloat.toFixed(6)} | ${basisStr} | total:${timings.total}ms quote:${timings.quote}ms sign:${timings.sign}ms net:${timings.post}ms`);
 
                             logger.logTrade({
                                 type: 'QUOTE_REJECTED',
