@@ -284,7 +284,8 @@ async function connectToBusWithRetry(
                     const intentHash = statusData.intent_hash;
                     if (intentHash && !ctx.loggedIntents.has(intentHash)) {
                         ctx.loggedIntents.add(intentHash);
-                        console.log(`📨 Other solver won | Tx: ${statusData.tx_hash?.substring(0, 8) || 'unknown'}...`);
+                        // Log full status data to analyze competitor quotes
+                        console.log(`📨 Other solver won | Tx: ${statusData.tx_hash?.substring(0, 8) || 'unknown'}... | Data: ${JSON.stringify(statusData)}`);
                         
                         // Cleanup old logged intents (keep last 200 to prevent memory leak)
                         if (ctx.loggedIntents.size > 200) {
