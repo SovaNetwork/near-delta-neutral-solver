@@ -111,6 +111,11 @@ export class CronService {
                 console.error("Please rebalance manually or enable auto-rebalancer.");
             } else {
                 console.log("[Drift Check] Delta is balanced.");
+                // Auto-recover from emergency mode if delta is balanced
+                if (this.inventoryManager.isEmergencyMode()) {
+                    console.log("✅ Delta balanced - clearing emergency mode");
+                    this.inventoryManager.setEmergencyMode(false);
+                }
             }
 
             const canBuy = totalSpotUsd > BTC_ONLY_CONFIG.MIN_USDT_RESERVE;

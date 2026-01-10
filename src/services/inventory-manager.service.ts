@@ -26,8 +26,18 @@ export class InventoryStateService {
     ) {}
 
     setEmergencyMode(enabled: boolean) {
-        this.emergencyMode = enabled;
-        if (enabled) console.warn("!!! EMERGENCY MODE ENABLED - SWITCHING TO SELL ONLY !!!");
+        if (this.emergencyMode !== enabled) {
+            this.emergencyMode = enabled;
+            if (enabled) {
+                console.warn("!!! EMERGENCY MODE ENABLED - SWITCHING TO SELL ONLY !!!");
+            } else {
+                console.log("✅ EMERGENCY MODE CLEARED - resuming normal operation");
+            }
+        }
+    }
+
+    isEmergencyMode(): boolean {
+        return this.emergencyMode;
     }
 
     getRiskSnapshot(): RiskSnapshot | null {

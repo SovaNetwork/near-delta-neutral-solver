@@ -163,6 +163,12 @@ export class HedgerService {
                                 timestamp: new Date().toISOString()
                             });
 
+                            // Auto-recover from emergency mode after successful hedge
+                            if (this.inventoryManager.isEmergencyMode()) {
+                                console.log("✅ Hedge succeeded - clearing emergency mode");
+                                this.inventoryManager.setEmergencyMode(false);
+                            }
+
                         } catch (hedgeErr) {
                             console.error(`[ERROR] [${shortId(nonce)}] HEDGE FAILED | ${data.direction} ${data.amountBtc.toFixed(6)} BTC`, hedgeErr);
                             console.error(`[ERROR] MANUAL INTERVENTION REQUIRED - unhedged position!`);
