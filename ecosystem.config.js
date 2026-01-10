@@ -4,7 +4,7 @@ const logsDir = process.env.LOGS_DIR || '/data/logs';
 module.exports = {
     apps: [{
         name: "sova-delta-neutral-solver",
-        script: "./dist/app.js", // Points to the built file
+        script: "./dist/src/app.js", // Points to the built file
         cwd: "/home/ec2-user/near-delta-neutral-solver", // Ensures .env is found
         env: {
             NODE_ENV: "production",
