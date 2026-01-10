@@ -15,11 +15,13 @@ interface QuoteData {
 
 export class HedgerService {
     private pendingQuotes = new Map<string, QuoteData>(); // nonce -> data
+    private hedgedNonces = new Set<string>(); // Track already-hedged nonces to prevent double-hedging
     private pollInterval: NodeJS.Timeout | null = null;
     private processing = false; // Simple lock to avoid overlapping polls if slow
     private readonly POLL_INTERVAL_MS = 1500; // Check every 1.5 seconds for faster hedge execution
     private readonly MAX_CONCURRENT_NONCE_CHECKS = 5; // Max parallel nonce checks
     private readonly NONCE_CHECK_DELAY_MS = 50; // Delay between batch checks
+    private readonly HEDGED_NONCES_MAX_SIZE = 500; // Prevent memory leak
     private consecutiveRpcFailures = 0;
     private readonly MAX_RPC_FAILURES_BEFORE_EMERGENCY = 5;
 
@@ -46,6 +48,25 @@ export class HedgerService {
 
     removeQuote(nonce: string) {
         this.pendingQuotes.delete(nonce);
+    }
+
+    /**
+     * Check if a nonce was already hedged (idempotency guard)
+     */
+    wasAlreadyHedged(nonce: string): boolean {
+        return this.hedgedNonces.has(nonce);
+    }
+
+    /**
+     * Mark a nonce as hedged to prevent double-hedging
+     */
+    markAsHedged(nonce: string): void {
+        this.hedgedNonces.add(nonce);
+        // Prevent memory leak - trim old entries if too large
+        if (this.hedgedNonces.size > this.HEDGED_NONCES_MAX_SIZE) {
+            const toDelete = Array.from(this.hedgedNonces).slice(0, 100);
+            toDelete.forEach(n => this.hedgedNonces.delete(n));
+        }
     }
 
     private async poll() {
@@ -123,13 +144,21 @@ export class HedgerService {
             // Process all used nonces
             for (const { nonce, data, isUsed } of nonceResults) {
                 if (isUsed) {
-                    console.log(`💰 [${shortId(nonce)}] SETTLED | executing hedge...`);
                     this.pendingQuotes.delete(nonce);
+
+                    // Idempotency check - prevent double-hedging if quote_status already handled this
+                    if (this.wasAlreadyHedged(nonce)) {
+                        console.log(`[HEDGER] [${shortId(nonce)}] Already hedged, skipping`);
+                        continue;
+                    }
+
+                    console.log(`💰 [${shortId(nonce)}] SETTLED via polling | executing hedge...`);
 
                     if (data) {
                         // Check if hedging is disabled via circuit breaker
                         if (!BTC_ONLY_CONFIG.HEDGING_ENABLED) {
                             console.log(`[HEDGER] SKIP [${shortId(nonce)}] | hedging disabled | would ${data.direction} ${data.amountBtc.toFixed(6)} BTC`);
+                            this.markAsHedged(nonce); // Mark to prevent re-processing
                             this.logger.logTrade({
                                 type: 'SETTLEMENT_DETECTED',
                                 nonce,
@@ -143,23 +172,15 @@ export class HedgerService {
 
                         try {
                             const result = await this.hlService.executeHedge(data.direction, data.amountBtc);
-                            console.log(`✅ [${shortId(nonce)}] HEDGED | ${data.direction} ${data.amountBtc.toFixed(6)} BTC`);
-
-                            // Parse result for price
-                            let execPx = 0;
-                            if (result && result.response && result.response.data && result.response.data.statuses && result.response.data.statuses.length > 0) {
-                                const status = result.response.data.statuses[0];
-                                if (typeof status === 'object' && 'filled' in status) {
-                                    execPx = parseFloat(status.filled.avgPx);
-                                }
-                            }
+                            this.markAsHedged(nonce); // Mark as hedged immediately after success
+                            console.log(`✅ [${shortId(nonce)}] HEDGED | ${data.direction} ${data.amountBtc.toFixed(6)} BTC @ ${result.avgPrice}`);
 
                             this.logger.logTrade({
                                 type: 'HEDGE_EXECUTED',
                                 nonce,
                                 direction: data.direction,
                                 amountBtc: data.amountBtc,
-                                executionPrice: execPx,
+                                executionPrice: result.avgPrice,
                                 timestamp: new Date().toISOString()
                             });
 

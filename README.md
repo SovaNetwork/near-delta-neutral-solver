@@ -275,8 +275,9 @@ Enable dynamic spread to automatically adjust pricing based on the perp/spot bas
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DYNAMIC_SPREAD_ENABLED` | `false` | Enable basis-adjusted dynamic spread |
-| `BASE_SPREAD_BIPS` | `15` | Minimum spread (covers HL fees ~5 bps + profit margin) |
-| `MAX_SPREAD_BIPS` | `50` | Maximum spread cap |
+| `BASE_SPREAD_BIPS` | `15` | Competitive base spread before basis adjustment |
+| `MIN_SPREAD_FLOOR_BPS` | `5` | Absolute minimum spread (covers HL taker fees ~4.5 bps) |
+| `MAX_SPREAD_BIPS` | `50` | Maximum spread cap on adverse basis |
 | `SPOT_PRICE_SOURCE` | `coinbase` | Primary spot price source (`coinbase` or `binance`) |
 | `SPOT_PRICE_UPDATE_INTERVAL_MS` | `10000` | How often to fetch spot price (ms) |
 | `SPOT_PRICE_FALLBACK` | `true` | Try alternate source if primary fails |
@@ -285,14 +286,17 @@ Enable dynamic spread to automatically adjust pricing based on the perp/spot bas
 ```bash
 # Enable dynamic spread for consistent profitability
 DYNAMIC_SPREAD_ENABLED=true
-BASE_SPREAD_BIPS=15    # Covers ~5 bps HL fees + 10 bps profit
-MAX_SPREAD_BIPS=50     # Cap spread during extreme basis
+BASE_SPREAD_BIPS=5     # Competitive base rate
+MIN_SPREAD_FLOOR_BPS=5 # Never quote below HL fees
+MAX_SPREAD_BIPS=50     # Cap spread during extreme adverse basis
 ```
 
 **How it works:**
-- When basis is favorable (e.g., +10 bps when shorting), effective spread = 15 - 10 = 5 bps
-- When basis is adverse (e.g., -5 bps when shorting), effective spread = 15 + 5 = 20 bps
-- Spread never goes below `BASE_SPREAD_BIPS` (ensures minimum profit) or above `MAX_SPREAD_BIPS`
+- Favorable basis tightens spread: shorting when perp > spot, or longing when perp < spot
+- Adverse basis widens spread: the opposite scenarios
+- Example (shorting): basis = +10 bps → effective spread = max(5, 5-10) = 5 bps (but you capture the 10 bps basis)
+- Example (shorting): basis = -8 bps → effective spread = max(5, 5+8) = 13 bps (widens to protect margin)
+- Spread is always clamped to `[MIN_SPREAD_FLOOR_BPS, MAX_SPREAD_BIPS]`
 
 ### Risk Management
 

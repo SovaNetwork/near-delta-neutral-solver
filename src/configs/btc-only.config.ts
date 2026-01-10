@@ -66,8 +66,11 @@ export const BTC_ONLY_CONFIG = {
     // Dynamic spread based on basis (perp vs spot)
     // Base spread covers: HL fees (~4-5 bps) + minimum profit margin
     DYNAMIC_SPREAD_ENABLED: process.env.DYNAMIC_SPREAD_ENABLED === 'true',
-    BASE_SPREAD_BIPS: parseInt(process.env.BASE_SPREAD_BIPS || '15', 10), // Minimum spread (covers fees + profit)
+    BASE_SPREAD_BIPS: parseInt(process.env.BASE_SPREAD_BIPS || '15', 10), // Competitive rate before basis adjustment
     MAX_SPREAD_BIPS: parseInt(process.env.MAX_SPREAD_BIPS || '50', 10), // Cap spread to avoid excessive quotes
+    // Minimum floor - ensures we always cover HL taker fees (~4.5 bps)
+    // This prevents quoting at 0 spread when basis/spot data is unavailable
+    MIN_SPREAD_FLOOR_BPS: parseInt(process.env.MIN_SPREAD_FLOOR_BPS || '5', 10),
 
     // Risk
     MIN_MARGIN_THRESHOLD: parseFloat(process.env.MIN_MARGIN_THRESHOLD || '1000.0'), // Min USDC margin on HL

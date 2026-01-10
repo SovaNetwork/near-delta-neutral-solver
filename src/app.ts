@@ -80,6 +80,19 @@ async function main() {
         throw new Error(`Invalid MAX_ORDERBOOK_AGE_MS: ${BTC_ONLY_CONFIG.MAX_ORDERBOOK_AGE_MS} (must be 100-30000)`);
     }
 
+    // Spread sanity checks - warn if spreads might not cover costs
+    const HL_TAKER_FEE_BPS = 4.5; // Standard tier
+    if (BTC_ONLY_CONFIG.DYNAMIC_SPREAD_ENABLED) {
+        if (BTC_ONLY_CONFIG.MIN_SPREAD_FLOOR_BPS < HL_TAKER_FEE_BPS) {
+            console.warn(`⚠️  MIN_SPREAD_FLOOR_BPS=${BTC_ONLY_CONFIG.MIN_SPREAD_FLOOR_BPS} is below HL taker fee (~${HL_TAKER_FEE_BPS}bps) - may not cover costs`);
+        }
+        console.log("  MIN_SPREAD_FLOOR_BPS:", BTC_ONLY_CONFIG.MIN_SPREAD_FLOOR_BPS);
+    } else {
+        if (BTC_ONLY_CONFIG.TARGET_SPREAD_BIPS < HL_TAKER_FEE_BPS) {
+            console.warn(`⚠️  TARGET_SPREAD_BIPS=${BTC_ONLY_CONFIG.TARGET_SPREAD_BIPS} is below HL taker fee (~${HL_TAKER_FEE_BPS}bps) - may not cover costs`);
+        }
+    }
+
     // 1. Init Services
     const logger = new LoggerService();
     const nearService = new NearService();
@@ -248,15 +261,22 @@ async function connectToBusWithRetry(
                 const cachedQuote = quoteHash ? ctx.quoteCache.get(quoteHash) : null;
                 
                 if (cachedQuote) {
-                    // OUR QUOTE WAS EXECUTED! Execute hedge immediately
-                    console.log(`💰 [${shortId(cachedQuote.nonce)}] SETTLED via quote_status | executing hedge...`);
-
                     ctx.quoteCache.delete(quoteHash);
                     hedgerService.removeQuote(cachedQuote.nonce); // Remove from polling
+
+                    // Idempotency check - prevent double-hedging if poller already handled this
+                    if (hedgerService.wasAlreadyHedged(cachedQuote.nonce)) {
+                        console.log(`[HEDGER] [${shortId(cachedQuote.nonce)}] Already hedged via polling, skipping quote_status`);
+                        return;
+                    }
+
+                    // OUR QUOTE WAS EXECUTED! Execute hedge immediately
+                    console.log(`💰 [${shortId(cachedQuote.nonce)}] SETTLED via quote_status | executing hedge...`);
 
                     // Check if hedging is disabled via circuit breaker
                     if (!BTC_ONLY_CONFIG.HEDGING_ENABLED) {
                         console.log(`[HEDGER] SKIP [${shortId(cachedQuote.nonce)}] | hedging disabled | would ${cachedQuote.direction} ${cachedQuote.amountBtc.toFixed(6)} BTC`);
+                        hedgerService.markAsHedged(cachedQuote.nonce);
                         logger.logTrade({
                             type: 'SETTLEMENT_DETECTED',
                             nonce: cachedQuote.nonce,
@@ -269,13 +289,15 @@ async function connectToBusWithRetry(
                     } else {
                         try {
                             const result = await hlService.executeHedge(cachedQuote.direction, cachedQuote.amountBtc);
-                            console.log(`✅ [${shortId(cachedQuote.nonce)}] HEDGED | ${cachedQuote.direction} ${cachedQuote.amountBtc.toFixed(6)} BTC | Tx: ${statusData.tx_hash?.substring(0, 8) || 'unknown'}...`);
+                            hedgerService.markAsHedged(cachedQuote.nonce); // Mark as hedged
+                            console.log(`✅ [${shortId(cachedQuote.nonce)}] HEDGED | ${cachedQuote.direction} ${cachedQuote.amountBtc.toFixed(6)} BTC @ ${result.avgPrice} | Tx: ${statusData.tx_hash?.substring(0, 8) || 'unknown'}...`);
 
                             logger.logTrade({
                                 type: 'HEDGE_EXECUTED',
                                 nonce: cachedQuote.nonce,
                                 direction: cachedQuote.direction,
                                 amountBtc: cachedQuote.amountBtc,
+                                executionPrice: result.avgPrice,
                                 txHash: statusData.tx_hash,
                                 timestamp: new Date().toISOString()
                             });

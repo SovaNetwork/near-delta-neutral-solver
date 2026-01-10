@@ -56,33 +56,43 @@ export class QuoterService {
     /**
      * Calculate effective spread based on basis (perp vs spot)
      *
-     * Strategy: Basis can only HELP (tighten spread), never HURT (widen spread).
-     * This keeps us competitive while capturing extra profit when basis is favorable.
+     * Strategy: Basis can HELP (tighten spread) when favorable.
+     * We enforce a minimum floor to cover HL taker fees (~4.5 bps).
      *
      * When we BUY BTC (user sells to us), we SHORT perp to hedge:
      * - Positive basis (perp > spot): Favorable - tighten spread
-     * - Negative basis (perp < spot): Adverse - stay at base spread (don't widen)
+     * - Negative basis (perp < spot): Adverse - widen spread
      *
      * When we SELL BTC (user buys from us), we LONG perp to hedge:
-     * - Positive basis (perp > spot): Adverse - stay at base spread (don't widen)
+     * - Positive basis (perp > spot): Adverse - widen spread
      * - Negative basis (perp < spot): Favorable - tighten spread
      */
     private calculateEffectiveSpread(weAreBuyingBtc: boolean): number {
-        // If dynamic spread disabled or no spot price service, use static spread
+        // Minimum spread floor to cover HL taker fees (~4.5 bps) + buffer
+        const MIN_SPREAD_FLOOR_BPS = BTC_ONLY_CONFIG.MIN_SPREAD_FLOOR_BPS;
+
+        // If dynamic spread disabled or no spot price service, use static spread with floor
         if (!BTC_ONLY_CONFIG.DYNAMIC_SPREAD_ENABLED || !this.spotPriceService) {
-            return BTC_ONLY_CONFIG.TARGET_SPREAD_BIPS / 10000;
+            const fallbackBps = Math.max(MIN_SPREAD_FLOOR_BPS, BTC_ONLY_CONFIG.TARGET_SPREAD_BIPS);
+            this.lastEffectiveSpreadBps = fallbackBps;
+            return fallbackBps / 10000;
         }
 
         // Get perp mid price from orderbook
         const orderbook = this.hyperliquidService.getOrderbookSummary();
         if (!orderbook) {
-            return BTC_ONLY_CONFIG.TARGET_SPREAD_BIPS / 10000;
+            const fallbackBps = Math.max(MIN_SPREAD_FLOOR_BPS, BTC_ONLY_CONFIG.TARGET_SPREAD_BIPS);
+            this.lastEffectiveSpreadBps = fallbackBps;
+            return fallbackBps / 10000;
         }
 
-        // Calculate basis
+        // Calculate basis - if stale, use conservative fallback
         const basisBps = this.spotPriceService.calculateBasisBps(orderbook.midPrice);
         if (basisBps === null) {
-            return BTC_ONLY_CONFIG.TARGET_SPREAD_BIPS / 10000;
+            // Spot price stale - use base spread with floor (don't quote at 0!)
+            const fallbackBps = Math.max(MIN_SPREAD_FLOOR_BPS, BTC_ONLY_CONFIG.BASE_SPREAD_BIPS);
+            this.lastEffectiveSpreadBps = fallbackBps;
+            return fallbackBps / 10000;
         }
 
         this.lastBasisBps = basisBps;
@@ -90,19 +100,26 @@ export class QuoterService {
         // Base spread is our competitive rate
         const baseBps = BTC_ONLY_CONFIG.BASE_SPREAD_BIPS;
 
-        // Calculate favorable basis (only positive values reduce our spread)
-        let favorableBasisBps: number;
+        // Calculate basis impact on spread
+        // Favorable basis tightens, adverse basis widens
+        let basisAdjustmentBps: number;
 
         if (weAreBuyingBtc) {
-            // We short perp - positive basis is favorable (we short at premium)
-            favorableBasisBps = Math.max(0, basisBps);
+            // We short perp - positive basis is favorable (short at premium)
+            // Negative basis is adverse (short at discount)
+            basisAdjustmentBps = basisBps; // positive = tighten, negative = widen
         } else {
-            // We long perp - negative basis is favorable (we buy at discount)
-            favorableBasisBps = Math.max(0, -basisBps);
+            // We long perp - negative basis is favorable (buy at discount)
+            // Positive basis is adverse (buy at premium)
+            basisAdjustmentBps = -basisBps; // flip sign
         }
 
-        // Tighten spread by favorable basis, but never below 0
-        const effectiveBps = Math.max(0, baseBps - favorableBasisBps);
+        // Apply basis: favorable (positive) tightens spread, adverse (negative) widens
+        let effectiveBps = baseBps - basisAdjustmentBps;
+
+        // Clamp to [floor, max]
+        effectiveBps = Math.max(MIN_SPREAD_FLOOR_BPS, effectiveBps);
+        effectiveBps = Math.min(effectiveBps, BTC_ONLY_CONFIG.MAX_SPREAD_BIPS);
 
         this.lastEffectiveSpreadBps = effectiveBps;
 

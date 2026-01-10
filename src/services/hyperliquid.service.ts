@@ -297,15 +297,21 @@ export class HyperliquidService {
             return this.fundingRateCache.rate;
         }
 
-        // Fetch metaAndAssetCtxs to get funding
-        const metaAndCtxs = await this.infoClient.metaAndAssetCtxs();
-        const ctxs = metaAndCtxs[1]; // AssetCtx[]
-        const assetCtx = ctxs[this.assetIndex];
-        const rate = assetCtx ? parseFloat(assetCtx.funding) : 0;
+        try {
+            // Fetch metaAndAssetCtxs to get funding
+            const metaAndCtxs = await this.infoClient.metaAndAssetCtxs();
+            const ctxs = metaAndCtxs[1]; // AssetCtx[]
+            const assetCtx = ctxs[this.assetIndex];
+            const rate = assetCtx ? parseFloat(assetCtx.funding) : 0;
 
-        // Cache the result
-        this.fundingRateCache = { rate, timestamp: now };
-        return rate;
+            // Cache the result
+            this.fundingRateCache = { rate, timestamp: now };
+            return rate;
+        } catch (e) {
+            console.warn('[Hyperliquid] Failed to fetch funding rate:', e);
+            // Return cached value if available, otherwise 0
+            return this.fundingRateCache?.rate ?? 0;
+        }
     }
 
     getOrderbookSummary(): { bestBid: number; bestAsk: number; midPrice: number; spread: number; spreadBps: number } | null {
@@ -339,7 +345,12 @@ export class HyperliquidService {
         }
     }
 
-    async executeHedge(direction: 'short' | 'long', size: number) {
+    async executeHedge(direction: 'short' | 'long', size: number): Promise<{
+        success: boolean;
+        filledSize: number;
+        avgPrice: number;
+        response: any;
+    }> {
         if (!this.exchangeClient) throw new Error("Exchange client not initialized");
 
         const isBuy = direction === 'long';
@@ -377,7 +388,40 @@ export class HyperliquidService {
 
         this.invalidateClearinghouseCache();
 
-        return result;
+        // Parse fill status
+        let filledSize = 0;
+        let avgPrice = 0;
+        let success = false;
+
+        if (result && result.response && result.response.data && result.response.data.statuses) {
+            const status = result.response.data.statuses[0] as any;
+            if (status && typeof status === 'object') {
+                if ('filled' in status && status.filled) {
+                    filledSize = parseFloat(status.filled.totalSz);
+                    avgPrice = parseFloat(status.filled.avgPx);
+                    success = filledSize >= roundedSize * 0.99; // Allow 1% tolerance for rounding
+                } else if ('resting' in status) {
+                    // Order is resting (shouldn't happen with IOC)
+                    console.warn(`[Hedge] Order resting instead of filling - unexpected for IOC`);
+                } else if ('error' in status && status.error) {
+                    throw new Error(`Hedge order error: ${status.error}`);
+                }
+            }
+        }
+
+        // Log fill quality
+        if (success) {
+            const slippageActual = isBuy 
+                ? ((avgPrice - currentPrice) / currentPrice) * 10000
+                : ((currentPrice - avgPrice) / currentPrice) * 10000;
+            console.log(`[Hedge] Filled ${filledSize} @ ${avgPrice} (slippage: ${slippageActual.toFixed(1)}bps)`);
+        } else if (filledSize > 0) {
+            console.warn(`[Hedge] PARTIAL FILL: ${filledSize}/${roundedSize} BTC - manual intervention may be needed`);
+        } else {
+            throw new Error(`Hedge failed - no fill. Expected ${roundedSize} BTC, got 0`);
+        }
+
+        return { success, filledSize, avgPrice, response: result };
     }
 
 }
