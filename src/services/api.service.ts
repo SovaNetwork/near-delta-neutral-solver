@@ -4,11 +4,14 @@ import { HedgerService } from './hedger.service';
 import { HyperliquidService } from './hyperliquid.service';
 import { NearService } from './near.service';
 import { LoggerService } from './logger.service';
+import { TraceService } from './trace.service';
+import { InventoryStateService } from './inventory-manager.service';
 import { BTC_ONLY_CONFIG } from '../configs/btc-only.config';
 
 export class ApiService {
     private app: express.Application;
     private logger: LoggerService;
+    private traceService: TraceService;
     private port: number;
     private server: any;
 
@@ -17,9 +20,12 @@ export class ApiService {
         private hlService: HyperliquidService,
         private nearService: NearService,
         logger: LoggerService,
-        port: number
+        port: number,
+        traceService?: TraceService,
+        private inventoryManager?: InventoryStateService
     ) {
         this.logger = logger;
+        this.traceService = traceService || new TraceService();
         this.port = port || 3000;
         this.app = express();
 
@@ -197,6 +203,186 @@ export class ApiService {
             res.attachment('trades.csv');
             res.send(header + rows);
         });
+
+        // ===== ENHANCED TRACING & POSITION VISIBILITY ENDPOINTS =====
+
+        // Active trade traces (trades in progress)
+        this.app.get('/api/traces/active', (req, res) => {
+            res.json(this.traceService.getActiveTraces());
+        });
+
+        // Completed trade traces
+        this.app.get('/api/traces/completed', (req, res) => {
+            const limit = parseInt(req.query.limit as string) || 100;
+            res.json(this.traceService.getCompletedTrades(limit));
+        });
+
+        // Get specific trade by nonce
+        this.app.get('/api/traces/:nonce', (req, res) => {
+            const trade = this.traceService.getTradeByNonce(req.params.nonce);
+            if (trade) {
+                res.json(trade);
+            } else {
+                res.status(404).json({ error: 'Trade not found' });
+            }
+        });
+
+        // Performance metrics (P&L, win rate, volume)
+        this.app.get('/api/performance', (req, res) => {
+            const hours = parseInt(req.query.hours as string) || 24;
+            res.json(this.traceService.getPerformanceMetrics(hours));
+        });
+
+        // P&L history
+        this.app.get('/api/pnl', (req, res) => {
+            const limit = parseInt(req.query.limit as string) || 50;
+            res.json(this.traceService.getRecentPnl(limit));
+        });
+
+        // Comprehensive position snapshot with P&L context
+        this.app.get('/api/position-summary', async (req, res) => {
+            try {
+                // Fetch all balances in parallel
+                const btcBalancePromises = BTC_ONLY_CONFIG.BTC_TOKENS.map(async token => {
+                    const balBN = await this.nearService.getBalance(token.id);
+                    return {
+                        tokenId: token.id,
+                        symbol: token.symbol,
+                        balance: balBN.div(Math.pow(10, token.decimals)).toNumber()
+                    };
+                });
+
+                const usdBalancePromises = BTC_ONLY_CONFIG.USD_TOKENS.map(async token => {
+                    const balBN = await this.nearService.getBalance(token.id);
+                    return {
+                        tokenId: token.id,
+                        symbol: token.symbol,
+                        balance: balBN.div(Math.pow(10, token.decimals)).toNumber()
+                    };
+                });
+
+                const [btcBalances, usdBalances, perpPos, availableMargin, fundingRate] = await Promise.all([
+                    Promise.all(btcBalancePromises),
+                    Promise.all(usdBalancePromises),
+                    this.hlService.getBtcPosition(),
+                    this.hlService.getAvailableMargin(),
+                    this.hlService.getFundingRate()
+                ]);
+
+                const totalSpotBtc = btcBalances.reduce((sum, b) => sum + b.balance, 0);
+                const totalSpotUsd = usdBalances.reduce((sum, b) => sum + b.balance, 0);
+                const netDelta = totalSpotBtc + perpPos;
+
+                // Get orderbook for pricing
+                const orderbook = this.hlService.getOrderbookSummary();
+                const btcPrice = orderbook?.midPrice || 0;
+                const spotBtcValueUsd = totalSpotBtc * btcPrice;
+
+                // Performance metrics
+                const metrics = this.traceService.getPerformanceMetrics(24);
+
+                res.json({
+                    timestamp: new Date().toISOString(),
+                    positions: {
+                        spot: {
+                            btc: {
+                                total: totalSpotBtc,
+                                valueUsd: spotBtcValueUsd,
+                                breakdown: btcBalances
+                            },
+                            usd: {
+                                total: totalSpotUsd,
+                                breakdown: usdBalances
+                            }
+                        },
+                        perp: {
+                            positionBtc: perpPos,
+                            valueUsd: Math.abs(perpPos) * btcPrice,
+                            side: perpPos > 0 ? 'LONG' : perpPos < 0 ? 'SHORT' : 'FLAT'
+                        },
+                        netDeltaBtc: netDelta,
+                        netDeltaUsd: netDelta * btcPrice,
+                        isDeltaNeutral: Math.abs(netDelta) < BTC_ONLY_CONFIG.DRIFT_THRESHOLD_BTC
+                    },
+                    health: {
+                        availableMargin,
+                        fundingRate,
+                        fundingRateAnnualized: (fundingRate * 24 * 365 * 100).toFixed(2) + '%',
+                        btcPrice,
+                        emergencyMode: this.inventoryManager?.isEmergencyMode() ?? false
+                    },
+                    performance24h: metrics,
+                    pendingTrades: this.hedger.getPendingQuotes().length,
+                    activeTrades: this.traceService.getActiveTraces().length
+                });
+            } catch (e) {
+                res.status(500).json({ error: String(e) });
+            }
+        });
+
+        // Audit trail for a specific trade
+        this.app.get('/api/audit/:nonce', (req, res) => {
+            const trade = this.traceService.getTradeByNonce(req.params.nonce);
+            if (!trade) {
+                res.status(404).json({ error: 'Trade not found' });
+                return;
+            }
+
+            // Build audit trail with all phases
+            const audit = {
+                traceId: trade.traceId,
+                nonce: trade.nonce,
+                summary: {
+                    direction: trade.direction,
+                    btcAmount: trade.btcAmount,
+                    usdAmount: trade.usdAmount,
+                    quotedPrice: trade.quotedPrice,
+                    hedgePrice: trade.hedgePrice,
+                    spreadBps: trade.spreadBps,
+                    status: trade.status,
+                    realizedPnlUsd: trade.realizedPnlUsd
+                },
+                timing: {
+                    startTime: new Date(trade.startTime).toISOString(),
+                    endTime: trade.endTime ? new Date(trade.endTime).toISOString() : null,
+                    durationMs: trade.endTime ? trade.endTime - trade.startTime : null
+                },
+                phases: trade.phases.map(p => ({
+                    timestamp: p.timestamp,
+                    phase: p.phase,
+                    durationFromStartMs: p.durationMs,
+                    data: p.data
+                }))
+            };
+
+            res.json(audit);
+        });
+
+        // Export P&L as CSV
+        this.app.get('/api/export/pnl.csv', (req, res) => {
+            const pnl = this.traceService.getRecentPnl(10000);
+            const header = 'timestamp,traceId,nonce,direction,btcAmount,quotedPrice,hedgePrice,spreadBps,realizedPnlUsd,latencyMs\n';
+            const rows = pnl.map(p => [
+                p.timestamp,
+                p.traceId,
+                p.nonce,
+                p.direction,
+                p.btcAmount,
+                p.quotedPrice,
+                p.hedgePrice || '',
+                p.spreadBps,
+                p.realizedPnlUsd || '',
+                p.latencyMs || ''
+            ].join(',')).join('\n');
+
+            res.set('Content-Type', 'text/csv');
+            res.attachment('pnl.csv');
+            res.send(header + rows);
+        });
+    }
+
+    getTraceService(): TraceService {
+        return this.traceService;
     }
 
     start() {

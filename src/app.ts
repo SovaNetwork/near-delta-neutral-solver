@@ -8,9 +8,10 @@ import { InventoryStateService } from './services/inventory-manager.service';
 import { QuoterService } from './services/quoter.service';
 import { HedgerService } from './services/hedger.service';
 import { CronService } from './services/cron.service';
-import { LoggerService, shortId } from './services/logger.service';
+import { LoggerService, shortId, ConsoleFormat } from './services/logger.service';
 import { ApiService } from './services/api.service';
 import { SpotPriceService } from './services/spot-price.service';
+import { TraceService } from './services/trace.service';
 import { BTC_ONLY_CONFIG } from './configs/btc-only.config';
 import { NEAR_CONFIG } from './configs/near.config';
 import WebSocket from 'ws';
@@ -95,6 +96,7 @@ async function main() {
 
     // 1. Init Services
     const logger = new LoggerService();
+    const traceService = new TraceService();
     const nearService = new NearService();
     await nearService.init();
 
@@ -116,10 +118,10 @@ async function main() {
 
     const inventoryManager = new InventoryStateService(nearService, hlService);
     const quoterService = new QuoterService(inventoryManager, hlService, nearService, logger, spotPriceService);
-    const hedgerService = new HedgerService(nearService, hlService, inventoryManager, logger);
+    const hedgerService = new HedgerService(nearService, hlService, inventoryManager, logger, traceService);
     const cronService = new CronService(nearService, hlService, logger, inventoryManager);
     cronService.setQuoterService(quoterService);  // Wire up for quote stats logging
-    const apiService = new ApiService(hedgerService, hlService, nearService, logger, port);
+    const apiService = new ApiService(hedgerService, hlService, nearService, logger, port, traceService, inventoryManager);
 
     // Pre-warm risk snapshot before starting services
     console.log("Pre-warming risk snapshot...");
@@ -479,16 +481,23 @@ async function connectToBusWithRetry(
                             timestamp: Date.now(),
                         });
                         
+                        const quoteType = isExactOut ? 'OUT' : 'IN';
+                        const basisInfo = quoterService.getBasisInfo();
+                        
+                        // Calculate quoted price for P&L tracking
+                        const quotedPrice = weAreBuyingBtc 
+                            ? amountOutFloat / amountInFloat  // USD out / BTC in
+                            : amountInFloat / amountOutFloat; // USD in / BTC out
+                        
                         // Also track in hedger for nonce-based fallback polling
                         hedgerService.trackQuote(nonce, {
                             direction: weAreBuyingBtc ? 'short' : 'long',
                             amountBtc: amountBtcForHedge,
                             quoteId: nonce,
-                            deadlineMs: Date.now() + quoteDeadlineMs
+                            deadlineMs: Date.now() + quoteDeadlineMs,
+                            quotedPrice,
+                            spreadBps: basisInfo.effectiveSpreadBps || 0
                         });
-
-                        const quoteType = isExactOut ? 'OUT' : 'IN';
-                        const basisInfo = quoterService.getBasisInfo();
                         const basisStr = basisInfo.basisBps !== null ? `basis:${basisInfo.basisBps.toFixed(1)}bps spread:${basisInfo.effectiveSpreadBps?.toFixed(1)}bps` : '';
                         console.log(`✅ [${shortId(nonce)}] PUBLISHED ${quoteType} | ${weAreBuyingBtc ? 'BUY' : 'SELL'} ${btcSymbol} ${amountInFloat.toFixed(6)} → ${amountOutFloat.toFixed(6)} | ${basisStr} | total:${timings.total}ms quote:${timings.quote}ms sign:${timings.sign}ms net:${timings.post}ms`);
 

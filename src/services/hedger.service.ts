@@ -2,7 +2,8 @@ import { NearService } from './near.service';
 import { HyperliquidService } from './hyperliquid.service';
 import { InventoryStateService } from './inventory-manager.service';
 import { NEAR_CONFIG } from '../configs/near.config';
-import { LoggerService, shortId } from './logger.service';
+import { LoggerService, shortId, ConsoleFormat } from './logger.service';
+import { TraceService } from './trace.service';
 import { BTC_ONLY_CONFIG } from '../configs/btc-only.config';
 
 interface QuoteData {
@@ -11,6 +12,8 @@ interface QuoteData {
     quoteId: string;
     timestamp: number;
     deadlineMs: number; // Actual deadline for this quote
+    quotedPrice?: number; // For P&L calculation
+    spreadBps?: number; // For tracking
 }
 
 export class HedgerService {
@@ -29,7 +32,8 @@ export class HedgerService {
         private nearService: NearService,
         private hlService: HyperliquidService,
         private inventoryManager: InventoryStateService,
-        private logger: LoggerService
+        private logger: LoggerService,
+        private traceService?: TraceService
     ) { }
 
     start() {
@@ -41,9 +45,16 @@ export class HedgerService {
         this.pollInterval = setInterval(() => this.poll(), this.POLL_INTERVAL_MS);
     }
 
-    trackQuote(nonce: string, data: Omit<QuoteData, 'timestamp' | 'deadlineMs'> & { deadlineMs: number }) {
+    trackQuote(nonce: string, data: Omit<QuoteData, 'timestamp'>) {
         this.pendingQuotes.set(nonce, { ...data, timestamp: Date.now() });
-        console.log(`🔄 [${shortId(nonce)}] TRACKING | awaiting settlement...`);
+        
+        // Start trace if TraceService is available
+        if (this.traceService && data.quotedPrice) {
+            const direction = data.direction === 'short' ? 'BUY' : 'SELL';
+            this.traceService.startTrace(nonce, direction, data.amountBtc, data.quotedPrice, data.spreadBps || 0);
+        }
+        
+        console.log(`${ConsoleFormat.symbols.pending} [${shortId(nonce)}] TRACKING | ${data.direction} ${data.amountBtc.toFixed(6)} BTC | awaiting settlement...`);
     }
 
     removeQuote(nonce: string) {
@@ -81,8 +92,9 @@ export class HedgerService {
                 const expiryTime = data.deadlineMs + SAFETY_BUFFER_MS;
                 if (now > expiryTime) {
                     const expiredAfterMs = now - data.timestamp;
-                    console.log(`⏰ [${shortId(nonce)}] EXPIRED | no settlement after ${Math.round(expiredAfterMs / 1000)}s`);
+                    console.log(`${ConsoleFormat.symbols.expired} [${shortId(nonce)}] EXPIRED | no settlement after ${Math.round(expiredAfterMs / 1000)}s`);
                     this.pendingQuotes.delete(nonce);
+                    this.traceService?.recordExpired(nonce);
                     this.logger.logTrade({
                         type: 'QUOTE_EXPIRED',
                         nonce,
@@ -152,7 +164,9 @@ export class HedgerService {
                         continue;
                     }
 
-                    console.log(`💰 [${shortId(nonce)}] SETTLED via polling | executing hedge...`);
+                    console.log(`${ConsoleFormat.symbols.settlement} [${shortId(nonce)}] SETTLED via polling | executing hedge...`);
+                    this.traceService?.recordSettlement(nonce);
+                    this.traceService?.markWon(nonce);
 
                     if (data) {
                         // Check if hedging is disabled via circuit breaker
@@ -171,38 +185,55 @@ export class HedgerService {
                         }
 
                         try {
+                            this.traceService?.recordHedgeStart(nonce);
                             const result = await this.hlService.executeHedge(data.direction, data.amountBtc);
                             this.markAsHedged(nonce); // Mark as hedged immediately after success
-                            console.log(`✅ [${shortId(nonce)}] HEDGED | ${data.direction} ${data.amountBtc.toFixed(6)} BTC @ ${result.avgPrice}`);
+                            
+                            // Calculate P&L if we have quoted price
+                            const pnlUsd = data.quotedPrice && result.avgPrice 
+                                ? (data.direction === 'short' 
+                                    ? (result.avgPrice - data.quotedPrice) * data.amountBtc  // Short: profit if hedge > quote
+                                    : (data.quotedPrice - result.avgPrice) * data.amountBtc) // Long: profit if quote > hedge
+                                : undefined;
+                            
+                            const pnlStr = pnlUsd !== undefined ? ` | P&L:$${pnlUsd >= 0 ? '+' : ''}${pnlUsd.toFixed(2)}` : '';
+                            console.log(`${ConsoleFormat.symbols.success} [${shortId(nonce)}] HEDGED | ${data.direction} ${data.amountBtc.toFixed(6)} BTC @ $${result.avgPrice.toFixed(2)}${pnlStr}`);
 
+                            this.traceService?.recordHedgeSuccess(nonce, result.avgPrice, data.amountBtc);
+                            
                             this.logger.logTrade({
                                 type: 'HEDGE_EXECUTED',
                                 nonce,
                                 direction: data.direction,
                                 amountBtc: data.amountBtc,
                                 executionPrice: result.avgPrice,
+                                quotedPrice: data.quotedPrice,
+                                spreadBps: data.spreadBps,
+                                pnlUsd,
                                 timestamp: new Date().toISOString()
                             });
 
                             // Auto-recover from emergency mode after successful hedge
                             if (this.inventoryManager.isEmergencyMode()) {
-                                console.log("✅ Hedge succeeded - clearing emergency mode");
+                                console.log(`${ConsoleFormat.symbols.success} Hedge succeeded - clearing emergency mode`);
                                 this.inventoryManager.setEmergencyMode(false);
                             }
 
                         } catch (hedgeErr) {
-                            console.error(`[ERROR] [${shortId(nonce)}] HEDGE FAILED | ${data.direction} ${data.amountBtc.toFixed(6)} BTC`, hedgeErr);
-                            console.error(`[ERROR] MANUAL INTERVENTION REQUIRED - unhedged position!`);
-                            console.error(`[ERROR] ENABLING EMERGENCY MODE - stopping all quotes`);
+                            console.error(`${ConsoleFormat.symbols.failure} [${shortId(nonce)}] HEDGE FAILED | ${data.direction} ${data.amountBtc.toFixed(6)} BTC`, hedgeErr);
+                            console.error(`${ConsoleFormat.symbols.emergency} MANUAL INTERVENTION REQUIRED - unhedged position!`);
+                            console.error(`${ConsoleFormat.symbols.emergency} ENABLING EMERGENCY MODE - stopping all quotes`);
 
                             // Circuit breaker: stop quoting when hedge fails
                             this.inventoryManager.setEmergencyMode(true);
+                            this.traceService?.recordHedgeFailure(nonce, String(hedgeErr));
 
                             this.logger.logTrade({
                                 type: 'HEDGE_FAILED',
                                 nonce,
                                 direction: data.direction,
                                 amountBtc: data.amountBtc,
+                                quotedPrice: data.quotedPrice,
                                 error: String(hedgeErr),
                                 timestamp: new Date().toISOString()
                             });
