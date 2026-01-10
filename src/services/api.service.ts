@@ -211,10 +211,17 @@ export class ApiService {
             res.json(this.traceService.getActiveTraces());
         });
 
-        // Completed trade traces
+        // Completed trade traces (filter by status: won, lost, expired, failed)
         this.app.get('/api/traces/completed', (req, res) => {
             const limit = parseInt(req.query.limit as string) || 100;
-            res.json(this.traceService.getCompletedTrades(limit));
+            const status = req.query.status as string;
+            let trades = this.traceService.getCompletedTrades(limit);
+            
+            if (status) {
+                trades = trades.filter(t => t.status === status);
+            }
+            
+            res.json(trades);
         });
 
         // Get specific trade by nonce
