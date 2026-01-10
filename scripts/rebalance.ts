@@ -66,7 +66,11 @@ async function main() {
     const btcIndex = meta.universe.findIndex((a: any) => a.name === 'BTC');
     
     const metaAndCtxs = await infoClient.metaAndAssetCtxs();
-    const btcCtx = metaAndCtxs[1][btcIndex];
+    const btcCtx = metaAndCtxs[1][btcIndex] as any;
+    if (!btcCtx) {
+        console.error('Could not find BTC context');
+        process.exit(1);
+    }
     const markPrice = parseFloat(btcCtx.markPx);
     console.log(`Current BTC Mark Price: $${markPrice.toFixed(2)}\n`);
 
