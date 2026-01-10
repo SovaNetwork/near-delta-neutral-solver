@@ -194,6 +194,7 @@ NEAR Protocol integration:
 |----------|-------------|
 | `GET /api/traces/active` | Active trades currently in progress |
 | `GET /api/traces/completed` | Completed trade history with full lifecycle |
+| `GET /api/traces/completed?status=won` | Filter by status: `won`, `lost`, `expired`, `failed` |
 | `GET /api/traces/:nonce` | Get specific trade by nonce |
 | `GET /api/audit/:nonce` | Full audit trail with all phases and timing |
 | `GET /api/performance` | 24h performance metrics (P&L, win rate, volume, latency) |
