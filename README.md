@@ -174,7 +174,7 @@ NEAR Protocol integration:
 - `sign(message)` - Signs with Ed25519 keypair
 - `wasNonceUsed(nonce)` - Checks if quote was settled
 
-### `ApiService` & `LoggerService`
+### `ApiService`, `LoggerService` & `TraceService`
 
 **REST API Endpoints:**
 | Endpoint | Description |
@@ -189,9 +189,23 @@ NEAR Protocol integration:
 | `GET /api/export/trades.csv` | Full trade history export |
 | `GET /metrics` | Prometheus-compatible metrics |
 
+**Tracing & Audit Endpoints:**
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/traces/active` | Active trades currently in progress |
+| `GET /api/traces/completed` | Completed trade history with full lifecycle |
+| `GET /api/traces/:nonce` | Get specific trade by nonce |
+| `GET /api/audit/:nonce` | Full audit trail with all phases and timing |
+| `GET /api/performance` | 24h performance metrics (P&L, win rate, volume, latency) |
+| `GET /api/pnl` | Recent realized P&L entries |
+| `GET /api/position-summary` | Comprehensive position snapshot with health & P&L context |
+| `GET /api/export/pnl.csv` | Export P&L history as CSV |
+
 **Structured Logging:**
 - `logs/trades.jsonl` - Trade lifecycle events with timing data
 - `logs/positions.jsonl` - Periodic position snapshots
+- `logs/traces.jsonl` - Full trade phase traces for auditing
+- `logs/pnl.jsonl` - Realized P&L per trade
 
 ## Performance Optimizations
 
@@ -423,10 +437,11 @@ src/
 │   ├── hedger.service.ts       # Settlement detection and hedging
 │   ├── hyperliquid.service.ts  # Hyperliquid integration
 │   ├── inventory-manager.service.ts  # Risk state management
-│   ├── logger.service.ts       # Structured logging
+│   ├── logger.service.ts       # Structured logging and console formatting
 │   ├── near.service.ts         # NEAR Protocol integration
 │   ├── quoter.service.ts       # Quote calculation
-│   └── spot-price.service.ts   # Spot price feed for basis calculation
+│   ├── spot-price.service.ts   # Spot price feed for basis calculation
+│   └── trace.service.ts        # Trade lifecycle tracing and P&L tracking
 └── utils/
     └── hashing.ts              # NEP-413 serialization and signing
 
@@ -435,7 +450,9 @@ public/
 
 logs/
 ├── trades.jsonl                # Trade lifecycle events
-└── positions.jsonl             # Position snapshots
+├── positions.jsonl             # Position snapshots
+├── traces.jsonl                # Full trade phase traces for auditing
+└── pnl.jsonl                   # Realized P&L per trade
 ```
 
 ## License
